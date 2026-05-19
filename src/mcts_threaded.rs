@@ -1,9 +1,10 @@
 use crate::engine::evaluate::evaluate;
 use crate::engine::generate_instructions::generate_instructions_from_move_pair;
 use crate::engine::state::{MoveChoice, MoveOptions};
+use crate::heuristics::rank_side_pairs;
 use crate::instruction::StateInstructions;
 use crate::mcts::{MctsResult, MctsSideResult};
-use crate::state::State;
+use crate::state::{SideReference, State};
 use dashmap::DashMap;
 use rand::prelude::*;
 use rand::rng;
@@ -14,14 +15,49 @@ use std::time::{Duration, Instant};
 
 const MCTS_DEADLINE_CHECK_INTERVAL: u32 = 1_000;
 const MCTS_MAX_ITERATIONS_PER_TREE: u32 = 25_000_000;
-const MCTS_MAX_DEPTH: u8 = 5;
+const MCTS_MAX_DEPTH: u8 = 10;
 const SCORE_SCALE: f32 = 400.0;
+
+// progressive widening: at parent visit count N, only the top
+// K = max(1, min(len, ceil(WIDEN_C * sqrt(N)))) options (by heuristic rank)
+// are visible to UCB1. options past K are ignored by selection until N grows
+// enough to admit them. the schedule is roughly:
+//   N=1    -> K=1 * WIDEN_C
+//   N=10   -> K=3 * WIDEN_C
+//   N=100  -> K=10 * WIDEN_C
+//   N=1k   -> K=32 * WIDEN_C
+//   N=10k  -> K=100 * WIDEN_C
+const WIDEN_C: f32 = 1.0;
+const MAX_WIDEN: usize = 64; // Max value for K, but only for non-root nodes
 
 // added to a MoveNode's `visits` only, so while a
 // thread is in flight through that move it reads like this many extra losing
 // playouts: its ucb1 drops and other threads are steered onto different moves.
 // this is purely a diversification deterrent, so the magnitude is a tuning knob
 const VIRTUAL_LOSS_VISITS: u32 = 3;
+
+// first-play urgency / smoothed exploration:
+//
+// ucb1 bonus is sqrt(c * ln(N) / n). at n = 0 that's +inf, which
+// makes a freshly admitted move under progressive widening grab the next
+// selection unconditionally, and after exactly one rollout its bonus collapses
+// to sqrt(c * ln(N)), still huge. We don't want a newly admitted move to
+// dominate selection
+//
+// instead replace `n` with `n + V_MIN` in both the unvisited branch and the
+// visited branch. V_MIN is set per call to parent_visits / k, the visit
+// count an unvisited move would have if all k widened siblings were explored
+// equally. this will give:
+//   - n = 0:        bonus = sqrt(c * ln(N) / V_MIN)         (no singularity)
+//   - n small:      bonus ~ sqrt(c * ln(N) / V_MIN)         (no transition flood)
+//   - n >> V_MIN:   bonus ~ sqrt(c * ln(N) / n)             (standard UCB1)
+//
+// unvisited moves use the parent's per-side mean Q (sum_score / sum_visits
+// over visited siblings in the widened slice, defaulting to 0.5 when no
+// sibling is visited yet, with a tunable pessimism reduction of FPU_REDUCTION).
+// in practice makes a newly widened move more fairly compared to its siblings
+const FPU_REDUCTION: f32 = 0.1;
+const FPU_DEFAULT_Q: f32 = 0.5;
 
 // node map type alias for clarity.
 // key: (parent node address, s1_move_index, s2_move_index)
@@ -31,6 +67,16 @@ type ChildMap = DashMap<(usize, usize, usize), SharedBranch>;
 fn sigmoid(x: f32) -> f32 {
     // Tuned so that ~400 points is very close to 1.0
     1.0 / (1.0 + (-0.0062 * x).exp())
+}
+
+#[inline]
+fn widen_k(parent_visits: u32, len: usize) -> usize {
+    if len <= 1 {
+        return len;
+    }
+    let n = parent_visits.max(1) as f32;
+    let k = (WIDEN_C * n.sqrt()).ceil() as usize;
+    k.max(1).min(len).min(MAX_WIDEN)
 }
 
 pub struct MoveNode {
@@ -65,16 +111,6 @@ impl MoveNode {
     fn total_score_f32(&self) -> f32 {
         self.total_score.load(Ordering::Acquire) as f32 / SCORE_SCALE
     }
-
-    fn ucb1(&self, parent_visits: u32) -> f32 {
-        let visits = self.visits.load(Ordering::Acquire);
-        if visits == 0 {
-            return f32::INFINITY;
-        }
-        let average_score = self.total_score_f32() / visits as f32;
-        let exploration = 2.0 * (parent_visits as f32).ln().max(0.0) / visits as f32;
-        average_score + exploration.sqrt()
-    }
 }
 
 pub struct SharedNodeOptions {
@@ -93,22 +129,70 @@ impl SharedNodeOptions {
         }
     }
 
-    // drains a reusable MoveOptions buffer so its underlying Vec
-    // allocations stay with the worker thread for the next node
-    fn from_move_options(move_options: &mut MoveOptions) -> Self {
-        Self {
-            s1: move_options
-                .side_one_combined_options
-                .drain(..)
-                .map(MoveNode::new)
-                .collect(),
-            s2: move_options
-                .side_two_combined_options
-                .drain(..)
-                .map(MoveNode::new)
-                .collect(),
-        }
+    // Ranks each side's options for progressive-widening
+    // builds a SharedNodeOptions from a freshly-filled MoveOptions, ranking
+    // each side's pairs by the heuristic and sorting the resulting MoveNode
+    // vecs so index 0 is the highest-ranked pair. drains the reusable
+    // MoveOptions buffers so allocations stay with the worker for the next node.
+    fn from_ranked_move_options(state: &State, move_options: &mut MoveOptions) -> Self {
+        move_options.side_one_pair_scores.clear();
+        rank_side_pairs(
+            state,
+            SideReference::SideOne,
+            &move_options.side_one_slot_a_options,
+            &move_options.side_one_slot_b_options,
+            &move_options.side_one_combined_options,
+            &mut move_options.side_one_pair_scores,
+        );
+        move_options.side_two_pair_scores.clear();
+        rank_side_pairs(
+            state,
+            SideReference::SideTwo,
+            &move_options.side_two_slot_a_options,
+            &move_options.side_two_slot_b_options,
+            &move_options.side_two_combined_options,
+            &mut move_options.side_two_pair_scores,
+        );
+        move_options.clear_slot_buffers();
+
+        let s1 = build_sorted_movenodes(
+            &mut move_options.side_one_combined_options,
+            &mut move_options.side_one_pair_scores,
+            &mut move_options.side_one_sort_indices,
+        );
+        let s2 = build_sorted_movenodes(
+            &mut move_options.side_two_combined_options,
+            &mut move_options.side_two_pair_scores,
+            &mut move_options.side_two_sort_indices,
+        );
+        Self { s1, s2 }
     }
+}
+
+// drains `pairs` into a Vec<MoveNode> ordered by descending `scores`.
+// uses `indices` as reusable scratch; vecs are left empty on return.
+fn build_sorted_movenodes(
+    pairs: &mut Vec<(MoveChoice, MoveChoice)>,
+    scores: &mut Vec<f32>,
+    indices: &mut Vec<usize>,
+) -> Vec<MoveNode> {
+    let n = pairs.len();
+    debug_assert_eq!(n, scores.len());
+    indices.clear();
+    indices.extend(0..n);
+    indices.sort_by(|&a, &b| {
+        scores[b]
+            .partial_cmp(&scores[a])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut out = Vec::with_capacity(n);
+    for &i in indices.iter() {
+        out.push(MoveNode::new(pairs[i]));
+    }
+    pairs.clear();
+    scores.clear();
+    indices.clear();
+    out
 }
 
 pub struct SharedBranch {
@@ -198,8 +282,11 @@ impl Node {
 
     fn ensure_options(&self, state: &State, move_options: &mut MoveOptions) -> &SharedNodeOptions {
         self.options.get_or_init(|| {
-            state.get_all_options(move_options);
-            Box::new(SharedNodeOptions::from_move_options(move_options))
+            state.get_all_options_keep_slot_buffers(move_options);
+            Box::new(SharedNodeOptions::from_ranked_move_options(
+                state,
+                move_options,
+            ))
         })
     }
 
@@ -266,16 +353,56 @@ impl Node {
     }
 
     fn maximize_ucb_for_side(&self, side_options: &[MoveNode], parent_visits: u32) -> usize {
-        side_options
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| {
-                a.ucb1(parent_visits)
-                    .partial_cmp(&b.ucb1(parent_visits))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .map(|(i, _)| i)
-            .unwrap_or(0)
+        // root does not do progressive widening
+        let k = if self.root {
+            side_options.len()
+        } else {
+            widen_k(parent_visits, side_options.len())
+        };
+        if k == 0 {
+            return 0;
+        }
+        let slice = &side_options[..k];
+
+        // pre-pass: parent's per-side mean Q over visited siblings. side-1
+        // stores `score` and side-2 stores `1 - score` (see add_result), so
+        // sum_score / sum_visits already lives in this side's perspective.
+        let mut sum_score = 0.0f32;
+        let mut sum_visits: u32 = 0;
+        for node in slice {
+            let v = node.visits.load(Ordering::Acquire);
+            if v > 0 {
+                sum_score += node.total_score_f32();
+                sum_visits += v;
+            }
+        }
+        let fpu_q = if sum_visits > 0 {
+            ((sum_score / sum_visits as f32) - FPU_REDUCTION).max(0.0)
+        } else {
+            FPU_DEFAULT_Q
+        };
+        let v_min = (parent_visits.max(1) as f32 / k as f32).max(1.0);
+        let two_log_n = 2.0 * (parent_visits as f32).ln().max(0.0);
+
+        // max pass; ties resolve to the earlier index (top heuristic rank)
+        // because we use a strict `>` against best_ucb.
+        let mut best_idx = 0usize;
+        let mut best_ucb = f32::NEG_INFINITY;
+        for (i, node) in slice.iter().enumerate() {
+            let visits = node.visits.load(Ordering::Acquire);
+            let avg = if visits > 0 {
+                node.total_score_f32() / visits as f32
+            } else {
+                fpu_q
+            };
+            let denom = visits as f32 + v_min;
+            let ucb = avg + (two_log_n / denom).sqrt();
+            if ucb > best_ucb {
+                best_idx = i;
+                best_ucb = ucb;
+            }
+        }
+        best_idx
     }
 
     /// looks up or creates the child branch for `(s1_index, s2_index)` and
@@ -501,6 +628,8 @@ pub fn perform_mcts_shared_tree(
         }
     });
 
+    print_tree_stats(&root, &children);
+
     let options = root.options.get().expect("root options initialized");
     MctsResult {
         s1: options
@@ -522,5 +651,84 @@ pub fn perform_mcts_shared_tree(
             })
             .collect(),
         iteration_count: root.times_visited.load(Ordering::Acquire),
+    }
+}
+
+// debug helper: walks the built tree from `root` via the global children map
+// and prints per-depth counts of nodes, leaves, and visits. a leaf is a node
+// that has no entry in the children map (either depth-capped, terminal, or
+// simply never re-selected after being created by its parent's expand).
+//
+// useful for sanity-checking how FPU / progressive-widening shape the search:
+// a deep tree (visits concentrated at large depth values) suggests good
+// exploitation; a shallow, wide tree (many leaves at depth 0-1) suggests the
+// search is fanning out at the root without descending.
+fn print_tree_stats(root: &Arc<Node>, children: &ChildMap) {
+    use std::collections::{HashMap, HashSet};
+
+    // pre-group children by parent address; walking the dashmap once and
+    // bucketing avoids probing every (s1, s2) cell from each parent.
+    let mut by_parent: HashMap<usize, Vec<*const Node>> = HashMap::new();
+    for entry in children.iter() {
+        let parent_addr = entry.key().0;
+        let bucket = by_parent.entry(parent_addr).or_default();
+        for child in entry.nodes.iter() {
+            bucket.push(child as *const Node);
+        }
+    }
+
+    let mut nodes_by_depth: HashMap<u8, u64> = HashMap::new();
+    let mut leaves_by_depth: HashMap<u8, u64> = HashMap::new();
+    let mut visits_by_depth: HashMap<u8, u64> = HashMap::new();
+    let mut total_nodes = 0u64;
+
+    let mut stack: Vec<*const Node> = vec![Arc::as_ptr(root)];
+    let mut seen: HashSet<usize> = HashSet::new();
+    seen.insert(root.as_key());
+
+    while let Some(node_ptr) = stack.pop() {
+        let node = unsafe { &*node_ptr };
+        let depth = node.depth;
+        let visits = node.times_visited.load(Ordering::Acquire) as u64;
+
+        *nodes_by_depth.entry(depth).or_insert(0) += 1;
+        *visits_by_depth.entry(depth).or_insert(0) += visits;
+        total_nodes += 1;
+
+        let mut had_children = false;
+        if let Some(kids) = by_parent.get(&node.as_key()) {
+            for &child in kids {
+                had_children = true;
+                let addr = child as usize;
+                if seen.insert(addr) {
+                    stack.push(child);
+                }
+            }
+        }
+        if !had_children {
+            *leaves_by_depth.entry(depth).or_insert(0) += 1;
+        }
+    }
+
+    let mut depths: Vec<u8> = nodes_by_depth.keys().copied().collect();
+    depths.sort();
+    let total_leaves: u64 = leaves_by_depth.values().sum();
+
+    println!();
+    println!("== Tree shape ==");
+    println!("Distinct nodes: {}", total_nodes);
+    println!("Leaf nodes:     {}", total_leaves);
+    println!("Branch entries: {}", children.len());
+    println!();
+    println!(
+        "{:>5}  {:>12}  {:>12}  {:>14}  {:>12}",
+        "depth", "nodes", "leaves", "total_visits", "avg_visits"
+    );
+    for d in depths {
+        let n = nodes_by_depth[&d];
+        let l = leaves_by_depth.get(&d).copied().unwrap_or(0);
+        let v = visits_by_depth[&d];
+        let avg = if n > 0 { v as f64 / n as f64 } else { 0.0 };
+        println!("{:>5}  {:>12}  {:>12}  {:>14}  {:>12.1}", d, n, l, v, avg);
     }
 }

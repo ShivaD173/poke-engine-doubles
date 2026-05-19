@@ -8,6 +8,7 @@ use crate::state::{Pokemon, PokemonStatus, Side, SideReference, SideSlot, SlotRe
 const POKEMON_ALIVE: f32 = 30.0;
 const POKEMON_HP: f32 = 100.0;
 const USED_TERA: f32 = -50.0;
+const USED_MEGA: f32 = 15.0;
 
 const POKEMON_ATTACK_BOOST: f32 = 30.0;
 const POKEMON_DEFENSE_BOOST: f32 = 15.0;
@@ -36,6 +37,7 @@ const POKEMON_TOXIC: f32 = -30.0;
 const POKEMON_POISONED: f32 = -10.0;
 const POKEMON_BURNED: f32 = -25.0;
 
+const ENCORE: f32 = -50.0;
 const LEECH_SEED: f32 = -30.0;
 const SUBSTITUTE: f32 = 40.0;
 const CONFUSION: f32 = -20.0;
@@ -47,7 +49,7 @@ const REFLECT: f32 = 20.0;
 const LIGHT_SCREEN: f32 = 20.0;
 const AURORA_VEIL: f32 = 40.0;
 const SAFE_GUARD: f32 = 5.0;
-const TAILWIND: f32 = 5.0;
+const TAILWIND: f32 = 15.0;
 const HEALING_WISH: f32 = 30.0;
 
 const STEALTH_ROCK: f32 = -10.0;
@@ -55,7 +57,7 @@ const SPIKES: f32 = -7.0;
 const TOXIC_SPIKES: f32 = -7.0;
 const STICKY_WEB: f32 = -25.0;
 
-const FASTER_THAN_OPPONENT: f32 = 5.0;
+const FASTER_THAN_OPPONENT: f32 = 15.0;
 
 fn evaluate_poison(pokemon: &Pokemon, base_score: f32) -> f32 {
     match pokemon.ability {
@@ -175,6 +177,9 @@ fn evaluate_slot(
     if vs.contains(&PokemonVolatileStatus::LEECHSEED) {
         score += LEECH_SEED;
     }
+    if vs.contains(&PokemonVolatileStatus::ENCORE) {
+        score += ENCORE;
+    }
     if vs.contains(&PokemonVolatileStatus::SUBSTITUTE) {
         score += SUBSTITUTE;
     }
@@ -210,6 +215,7 @@ pub fn evaluate(state: &State) -> f32 {
     let side_two_b = &state.sides[1].pokemon[state.sides[1].slot_b.active_index];
     let mut iter = state.sides[0].pokemon.into_iter();
     let mut s1_used_tera = false;
+    let mut s1_used_mega = false;
     let mut side_one_has_alive_reserve = false;
     while let Some(pkmn) = iter.next() {
         if pkmn.hp > 0 {
@@ -223,6 +229,9 @@ pub fn evaluate(state: &State) -> f32 {
         }
         if pkmn.terastallized {
             s1_used_tera = true;
+        }
+        if pkmn.mega_evolved {
+            s1_used_mega = true;
         }
     }
     if state.sides[0].pokemon[state.sides[0].slot_a.active_index].hp > 0 {
@@ -246,8 +255,12 @@ pub fn evaluate(state: &State) -> f32 {
     if s1_used_tera {
         score += USED_TERA;
     }
+    if s1_used_mega {
+        score += USED_MEGA;
+    }
     let mut iter = state.sides[1].pokemon.into_iter();
     let mut s2_used_tera = false;
+    let mut s2_used_mega = false;
     let mut side_two_has_alive_reserve = false;
     while let Some(pkmn) = iter.next() {
         if pkmn.hp > 0 {
@@ -261,6 +274,9 @@ pub fn evaluate(state: &State) -> f32 {
         }
         if pkmn.terastallized {
             s2_used_tera = true;
+        }
+        if pkmn.mega_evolved {
+            s2_used_mega = true;
         }
     }
     if state.sides[1].pokemon[state.sides[1].slot_a.active_index].hp > 0 {
@@ -283,6 +299,9 @@ pub fn evaluate(state: &State) -> f32 {
     }
     if s2_used_tera {
         score -= USED_TERA;
+    }
+    if s2_used_mega {
+        score -= USED_MEGA;
     }
 
     let s1a_speed = get_effective_speed(state, SideReference::SideOne, &SlotReference::SlotA);
