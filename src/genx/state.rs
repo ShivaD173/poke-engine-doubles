@@ -869,6 +869,7 @@ impl Pokemon {
         last_used_move: &LastUsedMove,
         vec: &mut Vec<MoveChoice>,
         opponent_targets: (&Pokemon, &Pokemon),
+        opponent_target_slots: (&SideSlot, &SideSlot),
         move_choice: &Choice,
         pokemon_move_index: PokemonMoveIndex,
         partner: &Pokemon,
@@ -1007,6 +1008,56 @@ impl Pokemon {
                     can_mega,
                 )
             }
+            Choices::ENCORE | Choices::DISABLE => {
+                if matches!(
+                    opponent_target_slots.0.last_used_move,
+                    LastUsedMove::Move(_)
+                ) {
+                    vec.push(MoveChoice::Move(
+                        SlotReference::SlotA,
+                        side_ref.get_other_side(),
+                        pokemon_move_index,
+                    ));
+                    if can_tera {
+                        vec.push(MoveChoice::MoveTera(
+                            SlotReference::SlotA,
+                            side_ref.get_other_side(),
+                            pokemon_move_index,
+                        ));
+                    }
+                    if can_mega {
+                        vec.push(MoveChoice::MoveMega(
+                            SlotReference::SlotA,
+                            side_ref.get_other_side(),
+                            pokemon_move_index,
+                        ));
+                    }
+                }
+                if matches!(
+                    opponent_target_slots.1.last_used_move,
+                    LastUsedMove::Move(_)
+                ) {
+                    vec.push(MoveChoice::Move(
+                        SlotReference::SlotB,
+                        side_ref.get_other_side(),
+                        pokemon_move_index,
+                    ));
+                    if can_tera {
+                        vec.push(MoveChoice::MoveTera(
+                            SlotReference::SlotB,
+                            side_ref.get_other_side(),
+                            pokemon_move_index,
+                        ));
+                    }
+                    if can_mega {
+                        vec.push(MoveChoice::MoveMega(
+                            SlotReference::SlotB,
+                            side_ref.get_other_side(),
+                            pokemon_move_index,
+                        ));
+                    }
+                }
+            }
             Choices::TAUNT => {
                 if opponent_targets.0.tauntable() {
                     vec.push(MoveChoice::Move(
@@ -1071,15 +1122,16 @@ impl Pokemon {
         vec: &mut Vec<MoveChoice>,
         last_used_move: &LastUsedMove,
         opponent_targets: (&Pokemon, &Pokemon),
+        opponent_target_slots: (&SideSlot, &SideSlot),
         charging_mv_index: Option<PokemonMoveIndex>,
         partner: &Pokemon,
         encored: bool,
         disabled: bool,
         taunted: bool,
-        can_tera: bool,
-        side_can_mega: bool,
+        side: &Side,
     ) {
-        let can_mega = side_can_mega && self.can_mega_evolve();
+        let can_mega = side.can_use_mega() && self.can_mega_evolve();
+        let can_tera = side.can_use_tera();
         let cannot_use_status_moves = self.item == Items::ASSAULTVEST || taunted;
 
         let mut iter = self.moves.into_iter();
@@ -1100,7 +1152,11 @@ impl Pokemon {
                     _ => false,
                 } || (cannot_use_status_moves
                     && p.choice.category == MoveCategory::Status)
-                    || charging_mv_index.map_or(false, |idx| idx != iter.pokemon_move_index);
+                    || charging_mv_index.map_or(false, |idx| idx != iter.pokemon_move_index)
+                    || p.id == Choices::TAILWIND && side.side_conditions.tailwind > 0
+                    || p.id == Choices::LIGHTSCREEN && side.side_conditions.light_screen > 0
+                    || p.id == Choices::AURORAVEIL && side.side_conditions.aurora_veil > 0
+                    || p.id == Choices::REFLECT && side.side_conditions.reflect > 0;
 
                 if should_skip {
                     continue;
@@ -1116,6 +1172,7 @@ impl Pokemon {
                             last_used_move,
                             vec,
                             opponent_targets,
+                            opponent_target_slots,
                             move_choice,
                             iter.pokemon_move_index,
                             partner,
@@ -1771,6 +1828,7 @@ impl State {
         slot_options: &mut Vec<MoveChoice>,
         slot_ref: SlotReference,
         side: &Side,
+        other_side: &Side,
         side_ref: SideReference,
         _partner_active: &Pokemon,
         opponent_active_a: &Pokemon,
@@ -1808,13 +1866,13 @@ impl State {
                 slot_options,
                 &slot.last_used_move,
                 (&opponent_active_a, &opponent_active_b),
+                (&other_side.slot_a, &other_side.slot_b),
                 active_charging_mv_index,
                 partner,
                 encored,
                 disabled,
                 taunted,
-                side.can_use_tera(),
-                side.can_use_mega(),
+                side,
             );
 
             if !side.trapped(
@@ -1940,6 +1998,7 @@ impl State {
                 &mut move_options.side_one_slot_a_options,
                 SlotReference::SlotA,
                 &self.sides[0],
+                &self.sides[1],
                 SideReference::SideOne,
                 side_one_active_b,
                 side_two_active_a,
@@ -1952,6 +2011,7 @@ impl State {
                 &mut move_options.side_one_slot_b_options,
                 SlotReference::SlotB,
                 &self.sides[0],
+                &self.sides[1],
                 SideReference::SideOne,
                 side_one_active_a,
                 side_two_active_a,
@@ -1965,6 +2025,7 @@ impl State {
                 &mut move_options.side_two_slot_a_options,
                 SlotReference::SlotA,
                 &self.sides[1],
+                &self.sides[0],
                 SideReference::SideTwo,
                 side_two_active_b,
                 side_one_active_a,
@@ -1977,6 +2038,7 @@ impl State {
                 &mut move_options.side_two_slot_b_options,
                 SlotReference::SlotB,
                 &self.sides[1],
+                &self.sides[0],
                 SideReference::SideTwo,
                 side_two_active_a,
                 side_one_active_a,

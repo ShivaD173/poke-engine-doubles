@@ -10,10 +10,8 @@
 
 use crate::choices::{Choice, Choices, MoveCategory, MoveChoiceTarget, MoveTarget};
 use crate::engine::damage_calc::type_effectiveness_modifier;
-use crate::engine::state::{MoveChoice, PokemonVolatileStatus, Weather};
-use crate::state::{
-    LastUsedMove, Pokemon, PokemonType, Side, SideReference, SideSlot, SlotReference, State,
-};
+use crate::engine::state::{MoveChoice, PokemonVolatileStatus};
+use crate::state::{Pokemon, PokemonType, SideReference, SlotReference, State};
 
 // MoveChoice::to_u8() returns values in 0..=90
 // this needs to be kept in sync with the MoveChoice encoding; we could make it a const fn?
@@ -31,9 +29,8 @@ const PRIORITY_BONUS_PER_STEP: f32 = 5.0;
 const STATUS_PRIOR_BOOST: f32 = 30.0;
 const STATUS_PRIOR_STATUS_INFLICT: f32 = 55.0;
 const STATUS_PRIOR_VOLATILE: f32 = 25.0;
-const STATUS_PRIOR_SIDE_CONDITION: f32 = 50.0;
+const STATUS_PRIOR_SIDE_CONDITION: f32 = 100.0;
 const STATUS_PRIOR_HEAL_FULL_HEAL: f32 = 80.0; // scaled by hp missing
-const CAN_BE_ENCORED_OR_DISABLED_BONUS: f32 = 100.0; // if a target can be encore-ed
 
 // switch priors
 const SWITCH_BASE: f32 = 20.0;
@@ -102,10 +99,9 @@ pub fn score_move_choice(
             let choice = &mv.choice;
 
             let target_side_obj = state.get_side_immutable(*target_side);
-            let target_slot_obj = target_side_obj.get_slot_immutable(target_slot);
             let target = target_side_obj.get_active_immutable(target_slot);
             let base = if choice.category == MoveCategory::Status || choice.base_power <= 0.0 {
-                score_status_move(state, attacker, attacker_side, target_slot_obj, choice)
+                score_status_move(state, attacker, choice)
             } else {
                 score_damaging_move(attacker, target, choice)
             };
@@ -175,13 +171,7 @@ fn score_damaging_move(attacker: &Pokemon, target: &Pokemon, choice: &Choice) ->
         + priority_bias
 }
 
-fn score_status_move(
-    state: &State,
-    attacker: &Pokemon,
-    attacker_side: &Side,
-    target_slot: &SideSlot,
-    choice: &Choice,
-) -> f32 {
+fn score_status_move(state: &State, attacker: &Pokemon, choice: &Choice) -> f32 {
     let mut s = 0.0;
     if choice.boost.is_some() {
         s += STATUS_PRIOR_BOOST;
@@ -212,39 +202,6 @@ fn score_status_move(
         || choice.move_choice_target == MoveChoiceTarget::AllOther
     {
         s *= SPREAD_MULTIPLIER;
-    }
-
-    match choice.move_id {
-        Choices::ENCORE | Choices::DISABLE => {
-            if matches!(target_slot.last_used_move, LastUsedMove::Move(_)) {
-                s += CAN_BE_ENCORED_OR_DISABLED_BONUS;
-            } else {
-                s = 0.0;
-            }
-        }
-        Choices::TAILWIND => {
-            if attacker_side.side_conditions.tailwind != 0 {
-                s = 0.0;
-            }
-        }
-        Choices::AURORAVEIL => {
-            if attacker_side.side_conditions.aurora_veil != 0
-                || state.get_weather() != Weather::HAIL
-            {
-                s = 0.0;
-            }
-        }
-        Choices::LIGHTSCREEN => {
-            if attacker_side.side_conditions.light_screen != 0 {
-                s = 0.0;
-            }
-        }
-        Choices::REFLECT => {
-            if attacker_side.side_conditions.reflect != 0 {
-                s = 0.0;
-            }
-        }
-        _ => {}
     }
 
     let accuracy_factor = (choice.accuracy / 100.0).clamp(0.0, 1.0);
