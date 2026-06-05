@@ -104,6 +104,51 @@ fn test_spread_move_no_damage_reduction_if_single_target() {
 }
 
 #[test]
+fn test_snow_boosting_defense_with_crit() {
+    let mut state = State::default();
+    state.sides[1].pokemon.pkmn[0].types.0 = PokemonType::ICE;
+
+    let damage_rolls_no_snow_boost = calculate_damage_rolls(
+        &mut state,
+        SideReference::SideOne,
+        &SlotReference::SlotA,
+        SideReference::SideTwo,
+        &SlotReference::SlotA,
+        MOVES.get(&Choices::TACKLE).unwrap().clone(),
+        &Choice::default(),
+    )
+    .unwrap();
+
+    state.weather.weather_type = Weather::SNOW;
+    state.weather.turns_remaining = 1;
+
+    let damage_rolls_snow_boost = calculate_damage_rolls(
+        &mut state,
+        SideReference::SideOne,
+        &SlotReference::SlotA,
+        SideReference::SideTwo,
+        &SlotReference::SlotA,
+        MOVES.get(&Choices::TACKLE).unwrap().clone(),
+        &Choice::default(),
+    )
+    .unwrap();
+
+    assert!(
+        damage_rolls_no_snow_boost[0] > damage_rolls_snow_boost[0],
+        "Expected snow boost damage to be less than no snow boost damage, but got {} and {}",
+        damage_rolls_snow_boost[0],
+        damage_rolls_no_snow_boost[0]
+    );
+
+    assert!(
+        damage_rolls_no_snow_boost[1] > damage_rolls_snow_boost[1],
+        "Expected snow boost crit damage to be less than no snow boost damage, but got {} and {}",
+        damage_rolls_snow_boost[1],
+        damage_rolls_no_snow_boost[1]
+    );
+}
+
+#[test]
 fn test_ivycudgel_changing_type() {
     // This was from a fuzz failure:
     // ogerponhearthflame using ivycudgel on a terastallized fire type means the damage is resisted

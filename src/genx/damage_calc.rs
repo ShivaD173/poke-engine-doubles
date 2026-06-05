@@ -494,11 +494,13 @@ fn get_attacking_and_defending_stats(
         && defending_stat == PokemonBoostableStat::Defense
     {
         defending_final_stat = (defending_final_stat as f32 * 1.5) as i16;
+        crit_defending_stat = (crit_defending_stat as f32 * 1.5) as i16;
     } else if effective_weather == Weather::SAND
         && defender.has_type(&PokemonType::ROCK)
         && defending_stat == PokemonBoostableStat::SpecialDefense
     {
         defending_final_stat = (defending_final_stat as f32 * 1.5) as i16;
+        crit_defending_stat = (crit_defending_stat as f32 * 1.5) as i16;
     }
 
     let neutralizing_gas_is_active = state.neutralizing_gas_is_active();
