@@ -957,17 +957,17 @@ fn test_gulp_missile_surf_high_hp() {
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P0,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideOne,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
         ],
     }];
@@ -1008,17 +1008,17 @@ fn test_gulp_missile_dive_low_hp() {
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P0,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideOne,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
         ],
     }];
@@ -2362,17 +2362,17 @@ fn test_surf_spread_move() {
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P0,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideOne,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
         ],
     }];
@@ -2451,12 +2451,12 @@ fn test_surf_spread_move_does_not_hit_telepathy_ally() {
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P0,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
         ],
     }];
@@ -3049,17 +3049,17 @@ fn test_lifeorb_with_spread_move_only_damages_once() {
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P0,
-                damage_amount: 37,
+                damage_amount: 36,
             }),
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 37,
+                damage_amount: 36,
             }),
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideOne,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 37,
+                damage_amount: 36,
             }),
             Instruction::Heal(HealInstruction {
                 side_ref: SideReference::SideOne,
@@ -4753,12 +4753,12 @@ fn test_ragepowder_does_not_affect_spread_move() {
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideOne,
                 pokemon_index: PokemonIndex::P0,
-                damage_amount: 25,
+                damage_amount: 24,
             }),
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideOne,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 25,
+                damage_amount: 24,
             }),
             Instruction::RemoveVolatileStatus(RemoveVolatileStatusInstruction {
                 side_ref: SideReference::SideOne,
@@ -4848,12 +4848,12 @@ fn test_protect_setting_volatile() {
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideOne,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
             Instruction::RemoveVolatileStatus(RemoveVolatileStatusInstruction {
                 side_ref: SideReference::SideTwo,
@@ -4906,17 +4906,17 @@ fn test_consecutive_protect_chance_to_fail() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideTwo,
                     pokemon_index: PokemonIndex::P0,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideTwo,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::ChangeVolatileStatusDuration(
                     ChangeVolatileStatusDurationInstruction {
@@ -4940,12 +4940,12 @@ fn test_consecutive_protect_chance_to_fail() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideTwo,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::RemoveVolatileStatus(RemoveVolatileStatusInstruction {
                     side_ref: SideReference::SideTwo,
@@ -5001,17 +5001,17 @@ fn test_consecutive_spikyshield_chance_to_fail() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideTwo,
                     pokemon_index: PokemonIndex::P0,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideTwo,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::ChangeVolatileStatusDuration(
                     ChangeVolatileStatusDurationInstruction {
@@ -5035,12 +5035,12 @@ fn test_consecutive_spikyshield_chance_to_fail() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideTwo,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::RemoveVolatileStatus(RemoveVolatileStatusInstruction {
                     side_ref: SideReference::SideTwo,
@@ -5389,7 +5389,7 @@ fn test_wideguard_protection() {
             Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideOne,
                 pokemon_index: PokemonIndex::P1,
-                damage_amount: 28,
+                damage_amount: 27,
             }),
             Instruction::ChangeSideCondition(ChangeSideConditionInstruction {
                 side_ref: SideReference::SideTwo,
@@ -7507,12 +7507,12 @@ fn test_muddywater_accuracy_lowers_opponents_chance_to_hit() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P0,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideTwo,
@@ -7528,12 +7528,12 @@ fn test_muddywater_accuracy_lowers_opponents_chance_to_hit() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P0,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Boost(BoostInstruction {
                     side_ref: SideReference::SideOne,
@@ -7555,7 +7555,7 @@ fn test_muddywater_accuracy_lowers_opponents_chance_to_hit() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P0,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Boost(BoostInstruction {
                     side_ref: SideReference::SideOne,
@@ -7566,7 +7566,7 @@ fn test_muddywater_accuracy_lowers_opponents_chance_to_hit() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideTwo,
@@ -7582,7 +7582,7 @@ fn test_muddywater_accuracy_lowers_opponents_chance_to_hit() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideTwo,
@@ -7598,7 +7598,7 @@ fn test_muddywater_accuracy_lowers_opponents_chance_to_hit() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P0,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideTwo,
@@ -7614,7 +7614,7 @@ fn test_muddywater_accuracy_lowers_opponents_chance_to_hit() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P0,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Boost(BoostInstruction {
                     side_ref: SideReference::SideOne,
@@ -7625,7 +7625,7 @@ fn test_muddywater_accuracy_lowers_opponents_chance_to_hit() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Boost(BoostInstruction {
                     side_ref: SideReference::SideOne,
@@ -7647,7 +7647,7 @@ fn test_muddywater_accuracy_lowers_opponents_chance_to_hit() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P0,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
                 Instruction::Boost(BoostInstruction {
                     side_ref: SideReference::SideOne,
@@ -7658,7 +7658,7 @@ fn test_muddywater_accuracy_lowers_opponents_chance_to_hit() {
                 Instruction::Damage(DamageInstruction {
                     side_ref: SideReference::SideOne,
                     pokemon_index: PokemonIndex::P1,
-                    damage_amount: 28,
+                    damage_amount: 27,
                 }),
             ],
         },

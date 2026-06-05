@@ -2464,7 +2464,6 @@ pub fn generate_instructions_from_move(
             let slot_a_alive = target_side.get_active_immutable(&SlotReference::SlotA).hp > 0;
             let slot_b_alive = target_side.get_active_immutable(&SlotReference::SlotB).hp > 0;
             if slot_a_alive && slot_b_alive {
-                choice.base_power *= 0.75;
                 choices.push((
                     choice.clone(),
                     attacking_side.get_other_side(),
@@ -2476,14 +2475,18 @@ pub fn generate_instructions_from_move(
                     SlotReference::SlotB,
                 ));
             } else if slot_a_alive {
+                let mut choice_clone = choice.clone();
+                choice_clone.move_choice_target = MoveChoiceTarget::Normal;
                 choices.push((
-                    choice.clone(),
+                    choice_clone,
                     attacking_side.get_other_side(),
                     SlotReference::SlotA,
                 ));
             } else if slot_b_alive {
+                let mut choice_clone = choice.clone();
+                choice_clone.move_choice_target = MoveChoiceTarget::Normal;
                 choices.push((
-                    choice.clone(),
+                    choice_clone,
                     attacking_side.get_other_side(),
                     SlotReference::SlotB,
                 ));
@@ -2521,9 +2524,9 @@ pub fn generate_instructions_from_move(
                     attacking_slot.get_other_slot(),
                 ))
             }
-            if choices.len() >= 2 {
+            if choices.len() < 2 {
                 for (c, _, _) in &mut choices {
-                    c.base_power *= 0.75;
+                    c.move_choice_target = MoveChoiceTarget::Normal;
                 }
             }
             choices
@@ -5541,10 +5544,10 @@ pub fn calculate_damage_rolls(
         } else {
             &state.sides[0]
         };
-        if target_side.get_active_immutable(&SlotReference::SlotA).hp > 0
-            && target_side.get_active_immutable(&SlotReference::SlotB).hp > 0
+        if target_side.get_active_immutable(&SlotReference::SlotA).hp == 0
+            || target_side.get_active_immutable(&SlotReference::SlotB).hp == 0
         {
-            choice.base_power *= 0.75;
+            choice.move_choice_target = MoveChoiceTarget::Normal;
         }
     }
 

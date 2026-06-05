@@ -1,7 +1,7 @@
 use super::abilities::Abilities;
 use super::state::{PokemonVolatileStatus, Terrain, Weather};
-use crate::choices::Choices;
 use crate::choices::{Choice, MoveCategory};
+use crate::choices::{Choices, MoveChoiceTarget};
 use crate::state::{
     Pokemon, PokemonBoostableStat, PokemonIndex, PokemonStatus, PokemonType, Side, SideReference,
     SideSlot, SlotReference, State,
@@ -599,6 +599,11 @@ fn common_pkmn_damage_calc(
     damage_modifier *= burn_modifier(&choice.category, &attacker.status);
     damage_modifier *= volatile_status_modifier(&choice, attacking_slot, target_slot);
     damage_modifier *= terrain_modifier(terrain, attacker, defender, &choice);
+    if choice.move_choice_target == MoveChoiceTarget::AllFoes
+        || choice.move_choice_target == MoveChoiceTarget::AllOther
+    {
+        damage_modifier *= 0.75;
+    }
 
     damage = damage * damage_modifier;
     crit_damage = crit_damage * damage_modifier;
