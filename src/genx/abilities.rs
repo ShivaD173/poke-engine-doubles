@@ -2487,21 +2487,23 @@ pub fn ability_modify_attack_being_used(
         _ => {}
     }
 
-    match ally_pkmn.ability {
-        Abilities::STEELYSPIRIT => {
-            if attacker_choice.move_type == PokemonType::STEEL {
-                attacker_choice.base_power *= 1.5;
-            };
-        }
-        Abilities::BATTERY => {
-            if attacker_choice.category == MoveCategory::Special {
+    if ally_pkmn.hp > 0 {
+        match ally_pkmn.ability {
+            Abilities::STEELYSPIRIT => {
+                if attacker_choice.move_type == PokemonType::STEEL {
+                    attacker_choice.base_power *= 1.5;
+                };
+            }
+            Abilities::BATTERY => {
+                if attacker_choice.category == MoveCategory::Special {
+                    attacker_choice.base_power *= 1.3;
+                };
+            }
+            Abilities::POWERSPOT => {
                 attacker_choice.base_power *= 1.3;
-            };
+            }
+            _ => {}
         }
-        Abilities::POWERSPOT => {
-            attacker_choice.base_power *= 1.3;
-        }
-        _ => {}
     }
 }
 
@@ -3120,7 +3122,8 @@ pub fn ability_modify_attack_against(
         }
     }
 
-    if !neutralizing_gas_active || target_ally.item == Items::ABILITYSHIELD {
+    if target_ally.hp > 0 && (!neutralizing_gas_active || target_ally.item == Items::ABILITYSHIELD)
+    {
         match target_ally.ability {
             Abilities::QUEENLYMAJESTY | Abilities::DAZZLING | Abilities::ARMORTAIL => {
                 if !attacker_has_mold_breaker
