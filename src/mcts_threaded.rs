@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 const MCTS_DEADLINE_CHECK_INTERVAL: u32 = 1_000;
 const MCTS_MAX_ITERATIONS_PER_TREE: u32 = 25_000_000;
-const MCTS_MAX_DEPTH: u8 = 10;
+const MCTS_MAX_DEPTH: u8 = 6;
 const SCORE_SCALE: f32 = 400.0;
 
 // progressive widening: at parent visit count N, only the top
