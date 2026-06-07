@@ -2442,8 +2442,9 @@ fn generate_instructions_from_existing_status_conditions(
 
 pub fn generate_instructions_from_move(
     state: &mut State,
-    choice: &mut Choice,
-    defender_choice: &Choice,
+    move_choices: &mut [Choice; 4],
+    attacker_choice_index: usize,
+    target_choice_index: usize,
     attacking_side: SideReference,
     attacking_slot: SlotReference,
     target_side: SideReference,
@@ -2454,44 +2455,43 @@ pub fn generate_instructions_from_move(
     branch_on_damage: bool,
 ) {
     // Split up spread moves into individual targets, if necessary
-    let choices: Vec<(Choice, SideReference, SlotReference)> = match choice.move_choice_target {
+    let choices: Vec<(usize, SideReference, SlotReference)> = match move_choices
+        [attacker_choice_index]
+        .move_choice_target
+    {
         // Spread Move
         MoveChoiceTarget::AllFoes => {
             // find all targets with more than 1 hp
-            // if num targets is 2, reduce damage by 25%
-            let mut choices = Vec::with_capacity(3);
+            let mut choices = Vec::with_capacity(2);
             let target_side = state.get_side_immutable(attacking_side.get_other_side());
             let slot_a_alive = target_side.get_active_immutable(&SlotReference::SlotA).hp > 0;
             let slot_b_alive = target_side.get_active_immutable(&SlotReference::SlotB).hp > 0;
             if slot_a_alive && slot_b_alive {
                 choices.push((
-                    choice.clone(),
+                    attacker_choice_index,
                     attacking_side.get_other_side(),
                     SlotReference::SlotA,
                 ));
                 choices.push((
-                    choice.clone(),
+                    attacker_choice_index,
                     attacking_side.get_other_side(),
                     SlotReference::SlotB,
                 ));
             } else if slot_a_alive {
-                let mut choice_clone = choice.clone();
-                choice_clone.move_choice_target = MoveChoiceTarget::Normal;
+                move_choices[attacker_choice_index].move_choice_target = MoveChoiceTarget::Normal;
                 choices.push((
-                    choice_clone,
+                    attacker_choice_index,
                     attacking_side.get_other_side(),
                     SlotReference::SlotA,
                 ));
             } else if slot_b_alive {
-                let mut choice_clone = choice.clone();
-                choice_clone.move_choice_target = MoveChoiceTarget::Normal;
+                move_choices[attacker_choice_index].move_choice_target = MoveChoiceTarget::Normal;
                 choices.push((
-                    choice_clone,
+                    attacker_choice_index,
                     attacking_side.get_other_side(),
                     SlotReference::SlotB,
                 ));
             }
-
             choices
         }
         // Targets Everyone except the user
@@ -2504,7 +2504,7 @@ pub fn generate_instructions_from_move(
                 .hp
                 > 0
             {
-                choices.push((choice.clone(), other_side_ref, SlotReference::SlotA))
+                choices.push((attacker_choice_index, other_side_ref, SlotReference::SlotA))
             }
             if state
                 .get_side_immutable(other_side_ref)
@@ -2512,30 +2512,28 @@ pub fn generate_instructions_from_move(
                 .hp
                 > 0
             {
-                choices.push((choice.clone(), other_side_ref, SlotReference::SlotB))
+                choices.push((attacker_choice_index, other_side_ref, SlotReference::SlotB))
             }
             let ally_pkmn = state
                 .get_side_immutable(attacking_side)
                 .get_active_immutable(&attacking_slot.get_other_slot());
             if ally_pkmn.hp > 0 && ally_pkmn.ability != Abilities::TELEPATHY {
                 choices.push((
-                    choice.clone(),
+                    attacker_choice_index,
                     attacking_side,
                     attacking_slot.get_other_slot(),
                 ))
             }
             if choices.len() < 2 {
-                for (c, _, _) in &mut choices {
-                    c.move_choice_target = MoveChoiceTarget::Normal;
-                }
+                move_choices[attacker_choice_index].move_choice_target = MoveChoiceTarget::Normal;
             }
             choices
         }
         // Single Target Move (target already chosen)
         MoveChoiceTarget::Normal => {
-            vec![(choice.clone(), target_side, target_slot)]
+            vec![(attacker_choice_index, target_side, target_slot)]
         }
-        _ => vec![(choice.clone(), target_side, target_slot)],
+        _ => vec![(attacker_choice_index, target_side, target_slot)],
     };
 
     state.reverse_instructions(&incoming_instructions.instruction_list);
@@ -2544,7 +2542,7 @@ pub fn generate_instructions_from_move(
     state_instructions_vec.push((incoming_instructions, remaining_to_move));
 
     let len = choices.len();
-    for (i, (current_choice, current_target_side, current_target_slot)) in
+    for (i, (current_attacker_choice_index, current_target_side, current_target_slot)) in
         choices.into_iter().enumerate()
     {
         let mut next_state_instructions_vec = Vec::with_capacity(16);
@@ -2553,8 +2551,8 @@ pub fn generate_instructions_from_move(
         for (state_instruction, remaining_moves) in state_instructions_vec {
             run_move(
                 state,
-                &mut current_choice.clone(),
-                defender_choice,
+                &mut move_choices[current_attacker_choice_index].clone(),
+                &move_choices[target_choice_index],
                 attacking_side,
                 attacking_slot,
                 current_target_side,
@@ -3408,6 +3406,7 @@ fn speed_comparison(speed: i16, best_speed: i16, trick_room_active: bool) -> boo
 fn next_to_move(
     state: &State,
     need_to_move: &Vec<RemainingToMove>,
+    move_choices: &[Choice; 4],
 ) -> (SideReference, SlotReference, usize, i8) {
     let mut best_index = 0;
     let mut best_speed = 0;
@@ -3416,7 +3415,8 @@ fn next_to_move(
 
     // Single pass to find the best move
     for (index, remaining_to_move) in need_to_move.iter().enumerate() {
-        let is_switch = remaining_to_move.choice.category == MoveCategory::Switch;
+        let is_switch =
+            move_choices[remaining_to_move.choice_index].category == MoveCategory::Switch;
         let speed = get_effective_speed(
             state,
             remaining_to_move.side_ref,
@@ -3429,7 +3429,7 @@ fn next_to_move(
                 state,
                 remaining_to_move.side_ref,
                 &remaining_to_move.slot_ref,
-                &remaining_to_move.choice,
+                &move_choices[remaining_to_move.choice_index],
             )
         };
 
@@ -4653,7 +4653,7 @@ pub struct RemainingToMove {
     side_ref: SideReference,
     slot_ref: SlotReference,
     move_choice: MoveChoice,
-    choice: Choice,
+    choice_index: usize,
 }
 
 fn get_slots_by_effective_speed(state: &State) -> [(SideReference, SlotReference, i16); 4] {
@@ -5255,13 +5255,19 @@ pub fn generate_instructions_from_move_pair(
         s2_b_tera,
     );
 
+    let mut move_choices = [
+        side_one_a_choice,
+        side_one_b_choice,
+        side_two_a_choice,
+        side_two_b_choice,
+    ];
     let mut need_to_move = Vec::with_capacity(4);
     if !s1_a_switch {
         need_to_move.push(RemainingToMove {
             side_ref: SideReference::SideOne,
             slot_ref: SlotReference::SlotA,
             move_choice: side_one_a_move.clone(),
-            choice: side_one_a_choice.clone(),
+            choice_index: 0,
         });
     }
     if !s1_b_switch {
@@ -5269,7 +5275,7 @@ pub fn generate_instructions_from_move_pair(
             side_ref: SideReference::SideOne,
             slot_ref: SlotReference::SlotB,
             move_choice: side_one_b_move.clone(),
-            choice: side_one_b_choice.clone(),
+            choice_index: 1,
         });
     }
     if !s2_a_switch {
@@ -5277,7 +5283,7 @@ pub fn generate_instructions_from_move_pair(
             side_ref: SideReference::SideTwo,
             slot_ref: SlotReference::SlotA,
             move_choice: side_two_a_move.clone(),
-            choice: side_two_a_choice.clone(),
+            choice_index: 2,
         });
     }
     if !s2_b_switch {
@@ -5285,7 +5291,7 @@ pub fn generate_instructions_from_move_pair(
             side_ref: SideReference::SideTwo,
             slot_ref: SlotReference::SlotB,
             move_choice: side_two_b_move.clone(),
-            choice: side_two_b_choice.clone(),
+            choice_index: 3,
         });
     }
 
@@ -5300,12 +5306,12 @@ pub fn generate_instructions_from_move_pair(
             let (state_instruction, mut remaining_to_move) = state_instructions_vec.remove(0);
             state.apply_instructions(&state_instruction.instruction_list);
             let (
-                mut attacker_choice,
+                attacker_choice_index,
                 attacker_side_ref,
                 attacker_slot_ref,
                 target_side_ref,
                 target_slot_ref,
-            ) = match next_to_move(&state, &remaining_to_move) {
+            ) = match next_to_move(&state, &remaining_to_move, &move_choices) {
                 (
                     SideReference::SideOne,
                     SlotReference::SlotA,
@@ -5313,10 +5319,9 @@ pub fn generate_instructions_from_move_pair(
                     move_effective_priority,
                 ) => {
                     remaining_to_move.remove(chosen_index);
-                    let mut this_choice = side_one_a_choice.clone();
-                    this_choice.priority = move_effective_priority;
+                    move_choices[0].priority = move_effective_priority;
                     (
-                        this_choice,
+                        0,
                         SideReference::SideOne,
                         SlotReference::SlotA,
                         side_one_a_target_side,
@@ -5330,10 +5335,9 @@ pub fn generate_instructions_from_move_pair(
                     move_effective_priority,
                 ) => {
                     remaining_to_move.remove(chosen_index);
-                    let mut this_choice = side_one_b_choice.clone();
-                    this_choice.priority = move_effective_priority;
+                    move_choices[1].priority = move_effective_priority;
                     (
-                        this_choice,
+                        1,
                         SideReference::SideOne,
                         SlotReference::SlotB,
                         side_one_b_target_side,
@@ -5347,10 +5351,9 @@ pub fn generate_instructions_from_move_pair(
                     move_effective_priority,
                 ) => {
                     remaining_to_move.remove(chosen_index);
-                    let mut this_choice = side_two_a_choice.clone();
-                    this_choice.priority = move_effective_priority;
+                    move_choices[2].priority = move_effective_priority;
                     (
-                        this_choice,
+                        2,
                         SideReference::SideTwo,
                         SlotReference::SlotA,
                         side_two_a_target_side,
@@ -5364,10 +5367,9 @@ pub fn generate_instructions_from_move_pair(
                     move_effective_priority,
                 ) => {
                     remaining_to_move.remove(chosen_index);
-                    let mut this_choice = side_two_b_choice.clone();
-                    this_choice.priority = move_effective_priority;
+                    move_choices[3].priority = move_effective_priority;
                     (
-                        this_choice,
+                        3,
                         SideReference::SideTwo,
                         SlotReference::SlotB,
                         side_two_b_target_side,
@@ -5375,16 +5377,17 @@ pub fn generate_instructions_from_move_pair(
                     )
                 }
             };
-            let target_choice = match (target_side_ref, target_slot_ref) {
-                (SideReference::SideOne, SlotReference::SlotA) => &side_one_a_choice,
-                (SideReference::SideOne, SlotReference::SlotB) => &side_one_b_choice,
-                (SideReference::SideTwo, SlotReference::SlotA) => &side_two_a_choice,
-                (SideReference::SideTwo, SlotReference::SlotB) => &side_two_b_choice,
+            let target_choice_index = match (target_side_ref, target_slot_ref) {
+                (SideReference::SideOne, SlotReference::SlotA) => 0,
+                (SideReference::SideOne, SlotReference::SlotB) => 1,
+                (SideReference::SideTwo, SlotReference::SlotA) => 2,
+                (SideReference::SideTwo, SlotReference::SlotB) => 3,
             };
             generate_instructions_from_move(
                 state,
-                &mut attacker_choice,
-                target_choice,
+                &mut move_choices,
+                attacker_choice_index,
+                target_choice_index,
                 attacker_side_ref,
                 attacker_slot_ref,
                 target_side_ref,
