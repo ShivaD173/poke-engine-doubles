@@ -2042,8 +2042,8 @@ pub fn choice_special_effect(
                 .contains(&PokemonVolatileStatus::SUBSTITUTE);
             let target_item = target_side.get_active_immutable(target_slot_ref).item;
             let (target, target_index) = target_side.get_active_with_index(target_slot_ref);
-            let target_item_can_be_removed = !target.item_can_be_removed();
-            if attacker_item == target_item || target_item_can_be_removed || target_has_sub {
+            let target_item_can_be_removed = target.item_can_be_removed();
+            if attacker_item == target_item || !target_item_can_be_removed || target_has_sub {
                 return;
             }
             let change_target_item_instruction = Instruction::ChangeItem(ChangeItemInstruction {
