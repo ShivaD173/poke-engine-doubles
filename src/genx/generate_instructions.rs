@@ -1117,12 +1117,18 @@ fn get_instructions_from_secondaries(
     target_slot_ref: &SlotReference,
     incoming_instructions: StateInstructions,
     hit_sub: bool,
+    target_has_moved: bool,
 ) -> Vec<StateInstructions> {
     let mut return_instruction_list = Vec::with_capacity(16);
     return_instruction_list.push(incoming_instructions);
 
     for secondary in secondaries {
         if secondary.target == MoveTarget::Target && hit_sub {
+            continue;
+        }
+        if secondary.effect == Effect::VolatileStatus(PokemonVolatileStatus::FLINCH)
+            && target_has_moved
+        {
             continue;
         }
         let secondary_percent_hit = (secondary.chance / 100.0).min(1.0);
@@ -3224,6 +3230,7 @@ fn run_move(
             parental_bond,
             does_damage,
             regular_damage,
+            target_has_moved,
             choice,
             defender_choice,
             &mut final_instructions,
@@ -3249,6 +3256,7 @@ fn run_move(
                 parental_bond,
                 does_damage,
                 branch_damage,
+                target_has_moved,
                 choice,
                 defender_choice,
                 &mut final_instructions,
@@ -4533,6 +4541,7 @@ fn execute_move_effects(
     parental_bond: bool,
     does_damage: bool,
     damage_amount: i16,
+    target_has_moved: bool,
     choice: &mut Choice,
     _defender_choice: &Choice,
     final_instructions: &mut Vec<(StateInstructions, Vec<RemainingToMove>)>,
@@ -4679,6 +4688,7 @@ fn execute_move_effects(
             &target_slot,
             instructions,
             hit_sub,
+            target_has_moved,
         ) {
             final_instructions.push((i, remaining_to_move.clone()));
         }
