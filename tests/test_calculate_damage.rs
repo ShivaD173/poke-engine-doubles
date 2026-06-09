@@ -84,6 +84,52 @@ fn test_spread_move_damage_reduction() {
 }
 
 #[test]
+fn test_earthquake_reduced_damage_if_our_side_alive() {
+    // our side has 2 alive, but the other side has 1 alive
+    // earthquake should do reduced damage because it is targetting
+    // 2 alive pkmn (ours plus theirs)
+    let mut state = State::default();
+    state.sides[1].pokemon.pkmn[1].hp = 0;
+
+    let choice = MOVES.get(&Choices::EARTHQUAKE).unwrap().clone();
+
+    let damage_rolls = calculate_damage_rolls(
+        &mut state,
+        SideReference::SideOne,
+        &SlotReference::SlotA,
+        SideReference::SideTwo,
+        &SlotReference::SlotA,
+        choice,
+        &Choice::default(),
+    );
+
+    assert_eq!(damage_rolls, Some(vec![34, 51]));
+}
+
+#[test]
+fn test_earthquake_standard_damage_if_only_one_target() {
+    // our side has only attacker alive, and the other side has 1 alive
+    // earthquake should do full damage because it is targeting 1 alive pkmn (only theirs)
+    let mut state = State::default();
+    state.sides[1].pokemon.pkmn[1].hp = 0;
+    state.sides[0].pokemon.pkmn[1].hp = 0;
+
+    let choice = MOVES.get(&Choices::EARTHQUAKE).unwrap().clone();
+
+    let damage_rolls = calculate_damage_rolls(
+        &mut state,
+        SideReference::SideOne,
+        &SlotReference::SlotA,
+        SideReference::SideTwo,
+        &SlotReference::SlotA,
+        choice,
+        &Choice::default(),
+    );
+
+    assert_eq!(damage_rolls, Some(vec![46, 69]));
+}
+
+#[test]
 fn test_spread_move_no_damage_reduction_if_single_target() {
     let mut state = State::default();
     state.sides[1].pokemon.pkmn[1].hp = 0;

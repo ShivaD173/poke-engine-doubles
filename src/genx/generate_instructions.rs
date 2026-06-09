@@ -5589,9 +5589,7 @@ pub fn calculate_damage_rolls(
     );
 
     // Spread move 0.75x damage if there are two targets
-    if choice.move_choice_target == MoveChoiceTarget::AllFoes
-        || choice.move_choice_target == MoveChoiceTarget::AllOther
-    {
+    if choice.move_choice_target == MoveChoiceTarget::AllFoes {
         let target_side = if attacking_side_ref == SideReference::SideOne {
             &state.sides[1]
         } else {
@@ -5600,6 +5598,30 @@ pub fn calculate_damage_rolls(
         if target_side.get_active_immutable(&SlotReference::SlotA).hp == 0
             || target_side.get_active_immutable(&SlotReference::SlotB).hp == 0
         {
+            choice.move_choice_target = MoveChoiceTarget::Normal;
+        }
+    } else if choice.move_choice_target == MoveChoiceTarget::AllOther {
+        let (our_side, target_side) = if attacking_side_ref == SideReference::SideOne {
+            (&state.sides[0], &state.sides[1])
+        } else {
+            (&state.sides[1], &state.sides[0])
+        };
+        let mut num_alive_targets = 0;
+        if target_side.get_active_immutable(&SlotReference::SlotA).hp > 0 {
+            num_alive_targets += 1;
+        }
+        if target_side.get_active_immutable(&SlotReference::SlotB).hp > 0 {
+            num_alive_targets += 1;
+        }
+        if our_side
+            .get_active_immutable(&attacking_slot_ref.get_other_slot())
+            .hp
+            > 0
+        {
+            num_alive_targets += 1;
+        }
+
+        if num_alive_targets == 1 {
             choice.move_choice_target = MoveChoiceTarget::Normal;
         }
     }
