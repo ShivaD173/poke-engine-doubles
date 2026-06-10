@@ -98,25 +98,6 @@ fn set_last_used_move_as_move(
     incoming_instructions: &mut StateInstructions,
 ) {
     let slot = side.get_slot(&slot_ref);
-    if slot
-        .volatile_statuses
-        .contains(&PokemonVolatileStatus::FLINCH)
-    {
-        // if we were flinched after just switching in we don't want our last used move to be switch
-        // this makes sure fakeout/firstimpression can't be used on the following turn
-        if matches!(slot.last_used_move, LastUsedMove::Switch(_)) {
-            incoming_instructions
-                .instruction_list
-                .push(Instruction::SetLastUsedMove(SetLastUsedMoveInstruction {
-                    side_ref: switching_side_ref,
-                    slot_ref,
-                    last_used_move: LastUsedMove::None,
-                    previous_last_used_move: slot.last_used_move,
-                }));
-            slot.last_used_move = LastUsedMove::None;
-        }
-        return;
-    }
     match slot.last_used_move {
         LastUsedMove::Move(last_used_move) => {
             if last_used_move == used_move {
@@ -2968,16 +2949,6 @@ fn run_move(
         return;
     }
 
-    if state.use_last_used_move {
-        set_last_used_move_as_move(
-            state.get_side(attacking_side),
-            attacking_slot,
-            choice.move_index,
-            attacking_side,
-            &mut incoming_instructions,
-        );
-    }
-
     if cannot_use_move(
         state,
         &choice,
@@ -2986,9 +2957,34 @@ fn run_move(
         target_side,
         &target_slot,
     ) {
+        let last_used_move_active = state.use_last_used_move;
+        let attacker_slot = state.get_side(attacking_side).get_slot(&attacking_slot);
+        if last_used_move_active && matches!(attacker_slot.last_used_move, LastUsedMove::Switch(_))
+        {
+            incoming_instructions
+                .instruction_list
+                .push(Instruction::SetLastUsedMove(SetLastUsedMoveInstruction {
+                    side_ref: attacking_side,
+                    slot_ref: attacking_slot,
+                    last_used_move: LastUsedMove::None,
+                    previous_last_used_move: attacker_slot.last_used_move,
+                }));
+            attacker_slot.last_used_move = LastUsedMove::None;
+        }
+
         state.reverse_instructions(&incoming_instructions.instruction_list);
         final_instructions.push((incoming_instructions, remaining_to_move));
         return;
+    }
+
+    if state.use_last_used_move {
+        set_last_used_move_as_move(
+            state.get_side(attacking_side),
+            attacking_slot,
+            choice.move_index,
+            attacking_side,
+            &mut incoming_instructions,
+        );
     }
 
     // TODO: this is not correct because PP should only decrement once per move, but this
