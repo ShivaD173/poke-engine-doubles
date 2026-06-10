@@ -8476,6 +8476,55 @@ fn test_faster_disable_blocking_move_being_reused() {
 }
 
 #[test]
+fn test_faster_disable_does_not_block_different_move() {
+    let mut state = State::default();
+    state.sides[0].slot_a.last_used_move = LastUsedMove::Move(PokemonMoveIndex::M1);
+    state.sides[0]
+        .get_active(&SlotReference::SlotA)
+        .replace_move(PokemonMoveIndex::M1, Choices::WATERGUN);
+
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        TestMoveChoice {
+            choice: Choices::TACKLE,
+            move_choice: MoveChoice::Move(
+                SlotReference::SlotA,
+                SideReference::SideTwo,
+                PokemonMoveIndex::M0,
+            ),
+        },
+        TestMoveChoice::default(),
+        TestMoveChoice {
+            choice: Choices::DISABLE,
+            move_choice: MoveChoice::Move(
+                SlotReference::SlotA,
+                SideReference::SideOne,
+                PokemonMoveIndex::M0,
+            ),
+        },
+        TestMoveChoice::default(),
+    );
+
+    let expected_instructions = vec![StateInstructions {
+        end_of_turn_triggered: true,
+        percentage: 100.0,
+        instruction_list: vec![
+            Instruction::ApplyVolatileStatus(ApplyVolatileStatusInstruction {
+                side_ref: SideReference::SideOne,
+                slot_ref: SlotReference::SlotA,
+                volatile_status: PokemonVolatileStatus::DISABLE,
+            }),
+            Instruction::Damage(DamageInstruction {
+                side_ref: SideReference::SideTwo,
+                pokemon_index: PokemonIndex::P0,
+                damage_amount: 25,
+            }),
+        ],
+    }];
+    assert_eq!(expected_instructions, vec_of_instructions);
+}
+
+#[test]
 fn test_actual_speed_tie() {
     let mut state = State::default();
     state.sides[0].pokemon.pkmn[0].speed = 100;
