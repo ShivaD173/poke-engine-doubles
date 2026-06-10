@@ -11,7 +11,7 @@
 use crate::choices::{Choice, Choices, MoveCategory, MoveChoiceTarget, MoveTarget};
 use crate::engine::damage_calc::type_effectiveness_modifier;
 use crate::engine::state::{MoveChoice, PokemonVolatileStatus};
-use crate::state::{Pokemon, PokemonType, SideReference, SlotReference, State};
+use crate::state::{Pokemon, PokemonType, Side, SideReference, SlotReference, State};
 
 // MoveChoice::to_u8() returns values in 0..=90
 // this needs to be kept in sync with the MoveChoice encoding; we could make it a const fn?
@@ -101,7 +101,7 @@ pub fn score_move_choice(
             let target_side_obj = state.get_side_immutable(*target_side);
             let target = target_side_obj.get_active_immutable(target_slot);
             let base = if choice.category == MoveCategory::Status || choice.base_power <= 0.0 {
-                score_status_move(state, attacker, choice)
+                score_status_move(state, attacker, target_side_obj, choice)
             } else {
                 score_damaging_move(attacker, target, choice)
             };
@@ -171,7 +171,12 @@ fn score_damaging_move(attacker: &Pokemon, target: &Pokemon, choice: &Choice) ->
         + priority_bias
 }
 
-fn score_status_move(state: &State, attacker: &Pokemon, choice: &Choice) -> f32 {
+fn score_status_move(
+    state: &State,
+    attacker: &Pokemon,
+    target_side: &Side,
+    choice: &Choice,
+) -> f32 {
     let mut s = 0.0;
     if choice.boost.is_some() {
         s += STATUS_PRIOR_BOOST;
@@ -202,6 +207,38 @@ fn score_status_move(state: &State, attacker: &Pokemon, choice: &Choice) -> f32 
         || choice.move_choice_target == MoveChoiceTarget::AllOther
     {
         s *= SPREAD_MULTIPLIER;
+    }
+
+    if choice.move_id == Choices::PERISHSONG {
+        if target_side
+            .slot_a
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::PERISH3)
+            || target_side
+                .slot_b
+                .volatile_statuses
+                .contains(&PokemonVolatileStatus::PERISH3)
+            || target_side
+                .slot_a
+                .volatile_statuses
+                .contains(&PokemonVolatileStatus::PERISH2)
+            || target_side
+                .slot_b
+                .volatile_statuses
+                .contains(&PokemonVolatileStatus::PERISH2)
+            || target_side
+                .slot_a
+                .volatile_statuses
+                .contains(&PokemonVolatileStatus::PERISH1)
+            || target_side
+                .slot_b
+                .volatile_statuses
+                .contains(&PokemonVolatileStatus::PERISH1)
+        {
+            s = 0.0;
+        } else {
+            s += 150.0;
+        }
     }
 
     let accuracy_factor = (choice.accuracy / 100.0).clamp(0.0, 1.0);
