@@ -3,7 +3,9 @@ use super::items::Items;
 use super::state::PokemonVolatileStatus;
 use crate::choices::MoveCategory;
 use crate::engine::generate_instructions::get_effective_speed;
-use crate::state::{Pokemon, PokemonStatus, Side, SideReference, SideSlot, SlotReference, State};
+use crate::state::{
+    LastUsedMove, Pokemon, PokemonStatus, Side, SideReference, SideSlot, SlotReference, State,
+};
 
 const POKEMON_ALIVE: f32 = 30.0;
 const POKEMON_HP: f32 = 100.0;
@@ -167,6 +169,7 @@ fn evaluate_pokemon(pokemon: &Pokemon) -> f32 {
 fn evaluate_slot(
     side: &Side,
     slot: &SideSlot,
+    pkmn: &Pokemon,
     has_alive_reserve: bool,
     other_side_a: &Pokemon,
     other_side_b: &Pokemon,
@@ -179,6 +182,14 @@ fn evaluate_slot(
     }
     if vs.contains(&PokemonVolatileStatus::ENCORE) {
         score += ENCORE;
+        if let LastUsedMove::Move(move_index) = slot.last_used_move {
+            if pkmn.moves[&move_index].choice.category == MoveCategory::Status {
+                // if the encore'd move is a status move, that's generally worse
+                // apply encore score again 2x
+                score += ENCORE;
+                score += ENCORE;
+            }
+        }
     }
     if vs.contains(&PokemonVolatileStatus::SUBSTITUTE) {
         score += SUBSTITUTE;
@@ -234,19 +245,21 @@ pub fn evaluate(state: &State) -> f32 {
             s1_used_mega = true;
         }
     }
-    if state.sides[0].pokemon[state.sides[0].slot_a.active_index].hp > 0 {
+    if side_one_a.hp > 0 {
         score += evaluate_slot(
             &state.sides[0],
             &state.sides[0].slot_a,
+            side_one_a,
             side_one_has_alive_reserve,
             side_two_a,
             side_two_b,
         );
     }
-    if state.sides[0].pokemon[state.sides[0].slot_b.active_index].hp > 0 {
+    if side_one_b.hp > 0 {
         score += evaluate_slot(
             &state.sides[0],
             &state.sides[0].slot_b,
+            side_one_b,
             side_one_has_alive_reserve,
             side_two_a,
             side_two_b,
@@ -279,19 +292,21 @@ pub fn evaluate(state: &State) -> f32 {
             s2_used_mega = true;
         }
     }
-    if state.sides[1].pokemon[state.sides[1].slot_a.active_index].hp > 0 {
+    if side_two_a.hp > 0 {
         score -= evaluate_slot(
             &state.sides[1],
             &state.sides[1].slot_a,
+            side_two_a,
             side_two_has_alive_reserve,
             side_one_a,
             side_one_b,
         );
     }
-    if state.sides[1].pokemon[state.sides[1].slot_b.active_index].hp > 0 {
+    if side_two_b.hp > 0 {
         score -= evaluate_slot(
             &state.sides[1],
             &state.sides[1].slot_b,
+            side_two_b,
             side_two_has_alive_reserve,
             side_one_a,
             side_one_b,
