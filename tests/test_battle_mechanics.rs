@@ -8477,6 +8477,150 @@ fn test_faster_disable_blocking_move_being_reused() {
                 slot_ref: SlotReference::SlotA,
                 volatile_status: PokemonVolatileStatus::DISABLE,
             }),
+            Instruction::ApplyVolatileStatus(ApplyVolatileStatusInstruction {
+                side_ref: SideReference::SideOne,
+                slot_ref: SlotReference::SlotA,
+                volatile_status: PokemonVolatileStatus::DISABLE0,
+            }),
+            Instruction::ChangeVolatileStatusDuration(ChangeVolatileStatusDurationInstruction {
+                side_ref: SideReference::SideOne,
+                slot_ref: SlotReference::SlotA,
+                volatile_status: PokemonVolatileStatus::DISABLE,
+                amount: 1,
+            }),
+        ],
+    }];
+    assert_eq!(expected_instructions, vec_of_instructions);
+}
+
+#[test]
+fn test_disable_being_removed_after_its_duration() {
+    let mut state = State::default();
+    state.use_last_used_move = true;
+    state.sides[0].slot_a.volatile_status_durations.disable = 3;
+    state.sides[0]
+        .slot_a
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::DISABLE);
+    state.sides[0]
+        .slot_a
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::DISABLE1);
+
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        TestMoveChoice {
+            choice: Choices::TACKLE,
+            move_choice: MoveChoice::Move(
+                SlotReference::SlotA,
+                SideReference::SideTwo,
+                PokemonMoveIndex::M0,
+            ),
+        },
+        TestMoveChoice::default(),
+        TestMoveChoice::default(),
+        TestMoveChoice::default(),
+    );
+
+    let expected_instructions = vec![StateInstructions {
+        end_of_turn_triggered: true,
+        percentage: 100.0,
+        instruction_list: vec![
+            Instruction::SetLastUsedMove(SetLastUsedMoveInstruction {
+                side_ref: SideReference::SideOne,
+                slot_ref: SlotReference::SlotA,
+                last_used_move: LastUsedMove::Move(PokemonMoveIndex::M0),
+                previous_last_used_move: LastUsedMove::None,
+            }),
+            Instruction::Damage(DamageInstruction {
+                side_ref: SideReference::SideTwo,
+                pokemon_index: PokemonIndex::P0,
+                damage_amount: 25,
+            }),
+            Instruction::ChangeVolatileStatusDuration(ChangeVolatileStatusDurationInstruction {
+                side_ref: SideReference::SideOne,
+                slot_ref: SlotReference::SlotA,
+                volatile_status: PokemonVolatileStatus::DISABLE,
+                amount: -3,
+            }),
+            Instruction::RemoveVolatileStatus(RemoveVolatileStatusInstruction {
+                side_ref: SideReference::SideOne,
+                slot_ref: SlotReference::SlotA,
+                volatile_status: PokemonVolatileStatus::DISABLE,
+            }),
+            Instruction::RemoveVolatileStatus(RemoveVolatileStatusInstruction {
+                side_ref: SideReference::SideOne,
+                slot_ref: SlotReference::SlotA,
+                volatile_status: PokemonVolatileStatus::DISABLE1,
+            }),
+        ],
+    }];
+    assert_eq!(expected_instructions, vec_of_instructions);
+}
+
+#[test]
+fn test_disable_fails_if_already_disabled() {
+    let mut state = State::default();
+    state.use_last_used_move = true;
+    state.sides[0].slot_a.volatile_status_durations.disable = 1;
+    state.sides[0]
+        .slot_a
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::DISABLE);
+    state.sides[0]
+        .slot_a
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::DISABLE1);
+
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        TestMoveChoice {
+            choice: Choices::TACKLE,
+            move_choice: MoveChoice::Move(
+                SlotReference::SlotA,
+                SideReference::SideTwo,
+                PokemonMoveIndex::M0,
+            ),
+        },
+        TestMoveChoice::default(),
+        TestMoveChoice {
+            choice: Choices::DISABLE,
+            move_choice: MoveChoice::Move(
+                SlotReference::SlotA,
+                SideReference::SideOne,
+                PokemonMoveIndex::M0,
+            ),
+        },
+        TestMoveChoice::default(),
+    );
+
+    let expected_instructions = vec![StateInstructions {
+        end_of_turn_triggered: true,
+        percentage: 100.0,
+        instruction_list: vec![
+            Instruction::SetLastUsedMove(SetLastUsedMoveInstruction {
+                side_ref: SideReference::SideTwo,
+                slot_ref: SlotReference::SlotA,
+                last_used_move: LastUsedMove::Move(PokemonMoveIndex::M0),
+                previous_last_used_move: LastUsedMove::None,
+            }),
+            Instruction::SetLastUsedMove(SetLastUsedMoveInstruction {
+                side_ref: SideReference::SideOne,
+                slot_ref: SlotReference::SlotA,
+                last_used_move: LastUsedMove::Move(PokemonMoveIndex::M0),
+                previous_last_used_move: LastUsedMove::None,
+            }),
+            Instruction::Damage(DamageInstruction {
+                side_ref: SideReference::SideTwo,
+                pokemon_index: PokemonIndex::P0,
+                damage_amount: 25,
+            }),
+            Instruction::ChangeVolatileStatusDuration(ChangeVolatileStatusDurationInstruction {
+                side_ref: SideReference::SideOne,
+                slot_ref: SlotReference::SlotA,
+                volatile_status: PokemonVolatileStatus::DISABLE,
+                amount: 1,
+            }),
         ],
     }];
     assert_eq!(expected_instructions, vec_of_instructions);
@@ -8528,6 +8672,11 @@ fn test_faster_disable_does_not_block_different_move() {
                 slot_ref: SlotReference::SlotA,
                 volatile_status: PokemonVolatileStatus::DISABLE,
             }),
+            Instruction::ApplyVolatileStatus(ApplyVolatileStatusInstruction {
+                side_ref: SideReference::SideOne,
+                slot_ref: SlotReference::SlotA,
+                volatile_status: PokemonVolatileStatus::DISABLE1,
+            }),
             Instruction::SetLastUsedMove(SetLastUsedMoveInstruction {
                 side_ref: SideReference::SideOne,
                 slot_ref: SlotReference::SlotA,
@@ -8538,6 +8687,12 @@ fn test_faster_disable_does_not_block_different_move() {
                 side_ref: SideReference::SideTwo,
                 pokemon_index: PokemonIndex::P0,
                 damage_amount: 25,
+            }),
+            Instruction::ChangeVolatileStatusDuration(ChangeVolatileStatusDurationInstruction {
+                side_ref: SideReference::SideOne,
+                slot_ref: SlotReference::SlotA,
+                volatile_status: PokemonVolatileStatus::DISABLE,
+                amount: 1,
             }),
         ],
     }];

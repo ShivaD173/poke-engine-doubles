@@ -18,8 +18,8 @@ use crate::instruction::{
 };
 use crate::pokemon::PokemonName;
 use crate::state::{
-    pokemon_index_iter, LastUsedMove, PokemonBoostableStat, PokemonSideCondition, PokemonStatus,
-    PokemonType, Side, SideReference, SlotReference, State,
+    pokemon_index_iter, LastUsedMove, PokemonBoostableStat, PokemonMoveIndex, PokemonSideCondition,
+    PokemonStatus, PokemonType, Side, SideReference, SlotReference, State,
 };
 use std::cmp;
 
@@ -1454,6 +1454,45 @@ pub fn choice_special_effect(
 ) {
     let (attacking_side, other_side) = state.get_both_sides(attacking_side_ref);
     match choice.move_id {
+        Choices::DISABLE => {
+            let target_side = state.get_side(target_side_ref);
+            let target_slot = target_side.get_slot(target_slot_ref);
+            if let LastUsedMove::Move(move_index) = target_slot.last_used_move {
+                let disable_volatile = match move_index {
+                    PokemonMoveIndex::M0 => PokemonVolatileStatus::DISABLE0,
+                    PokemonMoveIndex::M1 => PokemonVolatileStatus::DISABLE1,
+                    PokemonMoveIndex::M2 => PokemonVolatileStatus::DISABLE2,
+                    PokemonMoveIndex::M3 => PokemonVolatileStatus::DISABLE3,
+                };
+                if !target_slot
+                    .volatile_statuses
+                    .contains(&PokemonVolatileStatus::DISABLE)
+                {
+                    instructions
+                        .instruction_list
+                        .push(Instruction::ApplyVolatileStatus(
+                            ApplyVolatileStatusInstruction {
+                                side_ref: target_side_ref,
+                                slot_ref: *target_slot_ref,
+                                volatile_status: PokemonVolatileStatus::DISABLE,
+                            },
+                        ));
+                    instructions
+                        .instruction_list
+                        .push(Instruction::ApplyVolatileStatus(
+                            ApplyVolatileStatusInstruction {
+                                side_ref: target_side_ref,
+                                slot_ref: *target_slot_ref,
+                                volatile_status: disable_volatile,
+                            },
+                        ));
+                    target_slot
+                        .volatile_statuses
+                        .insert(PokemonVolatileStatus::DISABLE);
+                    target_slot.volatile_statuses.insert(disable_volatile);
+                }
+            }
+        }
         Choices::TAILWIND => {
             let partner_slot_ref = attacking_slot_ref.get_other_slot();
             let ally_pkmn = attacking_side.get_active_immutable(&partner_slot_ref);

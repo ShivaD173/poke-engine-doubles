@@ -274,13 +274,16 @@ fn test_disabled_pkmn_cannot_use_last_used_move() {
         .slot_a
         .volatile_statuses
         .insert(PokemonVolatileStatus::DISABLE);
+    state.sides[0]
+        .slot_a
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::DISABLE0);
 
     // only have 1 move per pkmn
     disable_all_moves(&mut state.sides[0].pokemon.pkmn[0].moves);
     disable_all_moves(&mut state.sides[0].pokemon.pkmn[1].moves);
     disable_all_moves(&mut state.sides[1].pokemon.pkmn[0].moves);
     disable_all_moves(&mut state.sides[1].pokemon.pkmn[1].moves);
-    state.sides[0].slot_a.last_used_move = LastUsedMove::Move(PokemonMoveIndex::M0);
     state.sides[0].pokemon.pkmn[0].moves.m0 = Move {
         id: Choices::QUIVERDANCE,
         disabled: false,
@@ -518,13 +521,16 @@ fn test_disabled_with_one_moves_gives_no_move() {
         .slot_a
         .volatile_statuses
         .insert(PokemonVolatileStatus::DISABLE);
+    state.sides[0]
+        .slot_a
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::DISABLE0);
 
     // only have 1 move per pkmn
     disable_all_moves(&mut state.sides[0].pokemon.pkmn[0].moves);
     disable_all_moves(&mut state.sides[0].pokemon.pkmn[1].moves);
     disable_all_moves(&mut state.sides[1].pokemon.pkmn[0].moves);
     disable_all_moves(&mut state.sides[1].pokemon.pkmn[1].moves);
-    state.sides[0].slot_a.last_used_move = LastUsedMove::Move(PokemonMoveIndex::M0);
     state.sides[0].pokemon.pkmn[0].moves.m0 = Move {
         id: Choices::QUIVERDANCE,
         disabled: false,
@@ -558,6 +564,10 @@ fn test_encored_and_disabled_means_no_moves() {
         .slot_a
         .volatile_statuses
         .insert(PokemonVolatileStatus::DISABLE);
+    state.sides[0]
+        .slot_a
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::DISABLE0);
     state.sides[0]
         .slot_a
         .volatile_statuses

@@ -423,6 +423,10 @@ define_enum_with_from_str! {
         DESTINYBOND,
         DIG,
         DISABLE,
+        DISABLE0,
+        DISABLE1,
+        DISABLE2,
+        DISABLE3,
         DIVE,
         ELECTRIFY,
         ELECTROSHOT,
@@ -866,7 +870,7 @@ impl Pokemon {
         &self,
         side_ref: SideReference,
         slot_ref: &SlotReference,
-        last_used_move: &LastUsedMove,
+        attacking_slot: &SideSlot,
         vec: &mut Vec<MoveChoice>,
         opponent_targets: (&Pokemon, &Pokemon),
         opponent_target_slots: (&SideSlot, &SideSlot),
@@ -886,7 +890,7 @@ impl Pokemon {
         let partner_alive = partner.hp > 0;
         match move_choice.move_id {
             // Fakeout: Only makes sense if you just switched in
-            Choices::FAKEOUT | Choices::FIRSTIMPRESSION => match last_used_move {
+            Choices::FAKEOUT | Choices::FIRSTIMPRESSION => match attacking_slot.last_used_move {
                 LastUsedMove::Switch(_) => self.add_moves_from_opponent_targets(
                     vec,
                     side_ref.get_other_side(),
@@ -1008,6 +1012,8 @@ impl Pokemon {
                     can_mega,
                 )
             }
+
+            // only allow these moves if the opponent used a move last turn
             Choices::ENCORE | Choices::DISABLE => {
                 if matches!(
                     opponent_target_slots.0.last_used_move,
@@ -1120,7 +1126,7 @@ impl Pokemon {
         side_ref: SideReference,
         slot_ref: &SlotReference,
         vec: &mut Vec<MoveChoice>,
-        last_used_move: &LastUsedMove,
+        attacking_slot: &SideSlot,
         opponent_targets: (&Pokemon, &Pokemon),
         opponent_target_slots: (&SideSlot, &SideSlot),
         charging_mv_index: Option<PokemonMoveIndex>,
@@ -1138,12 +1144,10 @@ impl Pokemon {
         while let Some(p) = iter.next() {
             if !p.disabled && p.pp > 0 {
                 // disqualifying conditions for a move
-                let should_skip = match last_used_move {
+                let should_skip = match &attacking_slot.last_used_move {
                     LastUsedMove::Move(last_used_move_index) => {
                         // encore: must use the last used move
                         (encored && last_used_move_index != &iter.pokemon_move_index) ||
-                            // disable: cannot use the last used move
-                            (disabled && last_used_move_index == &iter.pokemon_move_index) ||
                             // bloodmoon/gigatonhammer: cannot use consecutively
                             ((self.moves[last_used_move_index].id == Choices::BLOODMOON ||
                                 self.moves[last_used_move_index].id == Choices::GIGATONHAMMER) &&
@@ -1156,9 +1160,12 @@ impl Pokemon {
                     || p.id == Choices::TAILWIND && side.side_conditions.tailwind > 0
                     || p.id == Choices::LIGHTSCREEN && side.side_conditions.light_screen > 0
                     || p.id == Choices::AURORAVEIL && side.side_conditions.aurora_veil > 0
-                    || p.id == Choices::REFLECT && side.side_conditions.reflect > 0;
+                    || p.id == Choices::REFLECT && side.side_conditions.reflect > 0
+                    || disabled
+                        && attacking_slot.get_disable_pokemon_move_index()
+                            == Some(iter.pokemon_move_index);
 
-                if should_skip {
+                if should_skip && p.id != Choices::STRUGGLE {
                     continue;
                 }
 
@@ -1169,7 +1176,7 @@ impl Pokemon {
                         self.add_single_target_move(
                             side_ref,
                             slot_ref,
-                            last_used_move,
+                            attacking_slot,
                             vec,
                             opponent_targets,
                             opponent_target_slots,
@@ -1934,7 +1941,7 @@ impl State {
                 side_ref,
                 &slot_ref,
                 slot_options,
-                &slot.last_used_move,
+                &slot,
                 (&opponent_active_a, &opponent_active_b),
                 (&other_side.slot_a, &other_side.slot_b),
                 active_charging_mv_index,

@@ -2983,10 +2983,8 @@ lazy_static! {
                     reflectable: true,
                     ..Default::default()
                 },
-                volatile_status: Some(VolatileStatus {
-                    target: MoveTarget::Target,
-                    volatile_status: PokemonVolatileStatus::DISABLE,
-                }),
+                // disable volatile handled separately
+                volatile_status: None,
                 ..Default::default()
             },
         );

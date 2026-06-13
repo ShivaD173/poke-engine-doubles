@@ -1841,11 +1841,16 @@ fn move_has_no_effect(
     {
         return true;
     } else if choice.move_id == Choices::ENCORE || choice.move_id == Choices::DISABLE {
-        return match state
+        let target_slot = state
             .get_side_immutable(target_side_ref)
-            .get_slot_immutable(target_slot_ref)
-            .last_used_move
+            .get_slot_immutable(target_slot_ref);
+        if target_slot
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::DISABLE)
         {
+            return true;
+        }
+        return match target_slot.last_used_move {
             LastUsedMove::None => true,
             LastUsedMove::Move(_) => false,
             LastUsedMove::Switch(_) => true,
@@ -4117,6 +4122,9 @@ fn add_end_of_turn_instructions(
             let has_yawn = slot
                 .volatile_statuses
                 .contains(&PokemonVolatileStatus::YAWN);
+            let has_disable = slot
+                .volatile_statuses
+                .contains(&PokemonVolatileStatus::DISABLE);
             let has_perish_1 = slot
                 .volatile_statuses
                 .contains(&PokemonVolatileStatus::PERISH1);
@@ -4406,6 +4414,59 @@ fn add_end_of_turn_instructions(
                             volatile_status: PokemonVolatileStatus::PERISH3,
                         },
                     ));
+            }
+
+            if has_disable {
+                match slot.volatile_status_durations.disable {
+                    0 | 1 | 2 => {
+                        incoming_instructions.instruction_list.push(
+                            Instruction::ChangeVolatileStatusDuration(
+                                ChangeVolatileStatusDurationInstruction {
+                                    side_ref,
+                                    slot_ref: *slot_ref,
+                                    volatile_status: PokemonVolatileStatus::DISABLE,
+                                    amount: 1,
+                                },
+                            ),
+                        );
+                        slot.volatile_status_durations.disable += 1;
+                    }
+                    3 => {
+                        incoming_instructions.instruction_list.push(
+                            Instruction::ChangeVolatileStatusDuration(
+                                ChangeVolatileStatusDurationInstruction {
+                                    side_ref,
+                                    slot_ref: *slot_ref,
+                                    volatile_status: PokemonVolatileStatus::DISABLE,
+                                    amount: -1 * slot.volatile_status_durations.disable,
+                                },
+                            ),
+                        );
+                        incoming_instructions.instruction_list.push(
+                            Instruction::RemoveVolatileStatus(RemoveVolatileStatusInstruction {
+                                side_ref,
+                                slot_ref: *slot_ref,
+                                volatile_status: PokemonVolatileStatus::DISABLE,
+                            }),
+                        );
+                        let disable_index_volatile = slot.get_disable_index_volatile();
+                        incoming_instructions.instruction_list.push(
+                            Instruction::RemoveVolatileStatus(RemoveVolatileStatusInstruction {
+                                side_ref,
+                                slot_ref: *slot_ref,
+                                volatile_status: disable_index_volatile,
+                            }),
+                        );
+                        slot.volatile_status_durations.disable = 0;
+                        slot.volatile_statuses
+                            .remove(&PokemonVolatileStatus::DISABLE);
+                        slot.volatile_statuses.remove(&disable_index_volatile);
+                    }
+                    _ => panic!(
+                        "Disable duration cannot be {} when disable volatile is active",
+                        slot.volatile_status_durations.disable
+                    ),
+                }
             }
 
             if has_flinch {

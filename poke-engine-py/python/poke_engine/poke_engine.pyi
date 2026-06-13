@@ -10,6 +10,8 @@ class VolatileStatusDurations:
     :type confusion: int
     :param encore: Encore turns remaining
     :type encore: int
+    :param disable: Disable turns elapsed
+    :type disable: int
     :param lockedmove: Locked move turns remaining
     :type lockedmove: int
     :param protect: Protect turns remaining
@@ -24,6 +26,7 @@ class VolatileStatusDurations:
 
     confusion: int
     encore: int
+    disable: int
     lockedmove: int
     protect: int
     slowstart: int
@@ -34,6 +37,7 @@ class VolatileStatusDurations:
         self,
         confusion: int = 0,
         encore: int = 0,
+        disable: int = 0,
         lockedmove: int = 0,
         protect: int = 0,
         slowstart: int = 0,

@@ -813,6 +813,7 @@ impl StateTrickRoom {
 pub struct VolatileStatusDurations {
     pub confusion: i8,
     pub encore: i8,
+    pub disable: i8,
     pub lockedmove: i8,
     pub protect: i8,
     pub slowstart: i8,
@@ -825,6 +826,7 @@ impl Default for VolatileStatusDurations {
         VolatileStatusDurations {
             confusion: 0,
             encore: 0,
+            disable: 0,
             lockedmove: 0,
             protect: 0,
             slowstart: 0,
@@ -839,6 +841,7 @@ impl VolatileStatusDurations {
         let durations = [
             ("confusion", self.confusion),
             ("encore", self.encore),
+            ("disable", self.disable),
             ("lockedmove", self.lockedmove),
             ("protect", self.protect),
             ("slowstart", self.slowstart),
@@ -860,9 +863,10 @@ impl VolatileStatusDurations {
 
     pub fn serialize(&self) -> String {
         format!(
-            "{};{};{};{};{};{};{}",
+            "{};{};{};{};{};{};{};{}",
             self.confusion,
             self.encore,
+            self.disable,
             self.lockedmove,
             self.protect,
             self.slowstart,
@@ -875,11 +879,12 @@ impl VolatileStatusDurations {
         VolatileStatusDurations {
             confusion: split[0].parse::<i8>().unwrap(),
             encore: split[1].parse::<i8>().unwrap(),
-            lockedmove: split[2].parse::<i8>().unwrap(),
-            protect: split[3].parse::<i8>().unwrap(),
-            slowstart: split[4].parse::<i8>().unwrap(),
-            taunt: split[5].parse::<i8>().unwrap(),
-            yawn: split[6].parse::<i8>().unwrap(),
+            disable: split[2].parse::<i8>().unwrap(),
+            lockedmove: split[3].parse::<i8>().unwrap(),
+            protect: split[4].parse::<i8>().unwrap(),
+            slowstart: split[5].parse::<i8>().unwrap(),
+            taunt: split[6].parse::<i8>().unwrap(),
+            yawn: split[7].parse::<i8>().unwrap(),
         }
     }
 }
@@ -1140,6 +1145,62 @@ pub struct SideSlot {
     pub switch_out_move_second_saved_move: MoveChoice,
 }
 impl SideSlot {
+    // only to be called when you are sure disable is active
+    // will panic if no disable index can be found
+    pub fn get_disable_index_volatile(&self) -> PokemonVolatileStatus {
+        if self
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::DISABLE0)
+        {
+            PokemonVolatileStatus::DISABLE0
+        } else if self
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::DISABLE1)
+        {
+            PokemonVolatileStatus::DISABLE1
+        } else if self
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::DISABLE2)
+        {
+            PokemonVolatileStatus::DISABLE2
+        } else if self
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::DISABLE3)
+        {
+            PokemonVolatileStatus::DISABLE3
+        } else {
+            panic!("No disable index found");
+        }
+    }
+
+    // returns an Option because some situations allow for disable to be active without a valid disable index
+    // e.g. encore/disabled and your only option is to struggle
+    pub fn get_disable_pokemon_move_index(&self) -> Option<PokemonMoveIndex> {
+        if self
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::DISABLE0)
+        {
+            Some(PokemonMoveIndex::M0)
+        } else if self
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::DISABLE1)
+        {
+            Some(PokemonMoveIndex::M1)
+        } else if self
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::DISABLE2)
+        {
+            Some(PokemonMoveIndex::M2)
+        } else if self
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::DISABLE3)
+        {
+            Some(PokemonMoveIndex::M3)
+        } else {
+            None
+        }
+    }
+
     pub fn reset_negative_boosts(
         &mut self,
         side_ref: SideReference,
@@ -1973,6 +2034,9 @@ impl State {
             }
             PokemonVolatileStatus::ENCORE => {
                 slot.volatile_status_durations.encore += amount;
+            }
+            PokemonVolatileStatus::DISABLE => {
+                slot.volatile_status_durations.disable += amount;
             }
             PokemonVolatileStatus::SLOWSTART => {
                 slot.volatile_status_durations.slowstart += amount;

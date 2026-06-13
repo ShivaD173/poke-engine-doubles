@@ -337,7 +337,7 @@ impl PySideSlot {
         active_index="0".to_string(),
         baton_passing=false,
         shed_tailing=false,
-        volatile_status_durations=PyVolatileStatusDurations::new(0, 0, 0, 0, 0, 0, 0),
+        volatile_status_durations=PyVolatileStatusDurations::new(0, 0, 0, 0, 0, 0, 0, 0),
         wish=(0, 0),
         future_sight=(0, "0".to_string()),
         force_switch=false,
@@ -412,6 +412,7 @@ impl PySideSlot {
 pub struct PyVolatileStatusDurations {
     pub confusion: i8,
     pub encore: i8,
+    pub disable: i8,
     pub lockedmove: i8,
     pub protect: i8,
     pub slowstart: i8,
@@ -424,6 +425,7 @@ impl From<VolatileStatusDurations> for PyVolatileStatusDurations {
         PyVolatileStatusDurations {
             confusion: other.confusion,
             encore: other.encore,
+            disable: other.disable,
             lockedmove: other.lockedmove,
             protect: other.protect,
             slowstart: other.slowstart,
@@ -438,6 +440,7 @@ impl Into<VolatileStatusDurations> for PyVolatileStatusDurations {
         VolatileStatusDurations {
             confusion: self.confusion,
             encore: self.encore,
+            disable: self.disable,
             lockedmove: self.lockedmove,
             protect: self.protect,
             slowstart: self.slowstart,
@@ -453,6 +456,7 @@ impl PyVolatileStatusDurations {
     #[pyo3(signature = (
         confusion=0,
         encore=0,
+        disable=0,
         lockedmove=0,
         protect=0,
         slowstart=0,
@@ -462,6 +466,7 @@ impl PyVolatileStatusDurations {
     fn new(
         confusion: i8,
         encore: i8,
+        disable: i8,
         lockedmove: i8,
         protect: i8,
         slowstart: i8,
@@ -471,6 +476,7 @@ impl PyVolatileStatusDurations {
         PyVolatileStatusDurations {
             confusion,
             encore,
+            disable,
             lockedmove,
             protect,
             slowstart,
