@@ -347,6 +347,8 @@ define_enum_with_from_str! {
         DRAGONIZE,
         SPICYSPRAY,
         PIERCINGDRILL,
+        EELEVATE,
+        FIREMANE,
     },
     default = NONE
 }
@@ -915,7 +917,7 @@ pub fn ability_after_damage_hit(
                     );
                 }
             }
-            Abilities::BEASTBOOST => {
+            Abilities::BEASTBOOST | Abilities::EELEVATE => {
                 if damage_dealt > 0
                     && state
                         .get_side_immutable(target_side_ref)
@@ -2321,6 +2323,11 @@ pub fn ability_modify_attack_being_used(
                 attacker_choice.base_power *= 1.5;
             }
         }
+        Abilities::FIREMANE => {
+            if attacker_choice.move_type == PokemonType::FIRE {
+                attacker_choice.base_power *= 1.5;
+            }
+        }
         Abilities::TRANSISTOR => {
             if attacker_choice.move_type == PokemonType::ELECTRIC {
                 attacker_choice.base_power *= 1.3;
@@ -2800,7 +2807,7 @@ pub fn ability_modify_attack_against(
                     attacker_choice.base_power *= 1.33;
                 }
             }
-            Abilities::LEVITATE => {
+            Abilities::LEVITATE | Abilities::EELEVATE => {
                 if attacker_choice.move_type == PokemonType::GROUND
                     && attacker_choice.target == MoveTarget::Target
                     && attacker_choice.move_id != Choices::THOUSANDARROWS
