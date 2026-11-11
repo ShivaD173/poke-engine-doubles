@@ -17029,6 +17029,13 @@ pub struct Choice {
 
     pub first_move: bool,
     pub sleep_talk_move: bool,
+
+    // Per-execution context. Keep target classification separate from whether
+    // the spread damage penalty applies (Wide Guard/redirection use the former).
+    pub spread_hit: Option<bool>,
+    pub target_ally_friend_guard: Option<bool>,
+    pub defer_self_effects: bool,
+    pub first_target: bool,
 }
 
 impl fmt::Debug for Choice {
@@ -17160,6 +17167,10 @@ impl Default for Choice {
             move_choice_target: MoveChoiceTarget::Normal,
             first_move: true,
             sleep_talk_move: false,
+            spread_hit: None,
+            target_ally_friend_guard: None,
+            defer_self_effects: false,
+            first_target: true,
         }
     }
 }

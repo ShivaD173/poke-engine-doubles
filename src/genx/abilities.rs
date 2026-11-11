@@ -3141,10 +3141,16 @@ pub fn ability_modify_attack_against(
                     attacker_choice.accuracy = 0.0;
                 }
             }
-            Abilities::FRIENDGUARD => {
-                attacker_choice.base_power *= 0.75;
-            }
             _ => {}
         }
+    }
+    // Spread damage is calculated against the field at the start of the hit;
+    // knocking out the partner must not remove Friend Guard mid-attack.
+    if attacker_choice.target_ally_friend_guard.unwrap_or(
+        target_ally.hp > 0
+            && target_ally.ability == Abilities::FRIENDGUARD
+            && (!neutralizing_gas_active || target_ally.item == Items::ABILITYSHIELD),
+    ) {
+        attacker_choice.base_power *= 0.75;
     }
 }

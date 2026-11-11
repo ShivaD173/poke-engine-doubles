@@ -2448,117 +2448,204 @@ pub fn generate_instructions_from_move(
     branch_on_damage: bool,
 ) {
     // Split up spread moves into individual targets, if necessary
-    let choices: Vec<(usize, SideReference, SlotReference)> = match move_choices
-        [attacker_choice_index]
-        .move_choice_target
+    let choices: Vec<(usize, SideReference, SlotReference)> =
+        match move_choices[attacker_choice_index].move_choice_target {
+            // Spread Move
+            MoveChoiceTarget::AllFoes => {
+                // find all targets with more than 1 hp
+                let mut choices = Vec::with_capacity(2);
+                let target_side = state.get_side_immutable(attacking_side.get_other_side());
+                let slot_a_alive = target_side.get_active_immutable(&SlotReference::SlotA).hp > 0;
+                let slot_b_alive = target_side.get_active_immutable(&SlotReference::SlotB).hp > 0;
+                if slot_a_alive && slot_b_alive {
+                    choices.push((
+                        attacker_choice_index,
+                        attacking_side.get_other_side(),
+                        SlotReference::SlotA,
+                    ));
+                    choices.push((
+                        attacker_choice_index,
+                        attacking_side.get_other_side(),
+                        SlotReference::SlotB,
+                    ));
+                } else if slot_a_alive {
+                    choices.push((
+                        attacker_choice_index,
+                        attacking_side.get_other_side(),
+                        SlotReference::SlotA,
+                    ));
+                } else if slot_b_alive {
+                    choices.push((
+                        attacker_choice_index,
+                        attacking_side.get_other_side(),
+                        SlotReference::SlotB,
+                    ));
+                }
+                choices
+            }
+            // Targets Everyone except the user
+            MoveChoiceTarget::AllOther => {
+                let mut choices = Vec::with_capacity(3);
+                let other_side_ref = attacking_side.get_other_side();
+                if state
+                    .get_side_immutable(other_side_ref)
+                    .get_active_immutable(&SlotReference::SlotA)
+                    .hp
+                    > 0
+                {
+                    choices.push((attacker_choice_index, other_side_ref, SlotReference::SlotA))
+                }
+                if state
+                    .get_side_immutable(other_side_ref)
+                    .get_active_immutable(&SlotReference::SlotB)
+                    .hp
+                    > 0
+                {
+                    choices.push((attacker_choice_index, other_side_ref, SlotReference::SlotB))
+                }
+                let ally_pkmn = state
+                    .get_side_immutable(attacking_side)
+                    .get_active_immutable(&attacking_slot.get_other_slot());
+                if ally_pkmn.hp > 0 && ally_pkmn.ability != Abilities::TELEPATHY {
+                    choices.push((
+                        attacker_choice_index,
+                        attacking_side,
+                        attacking_slot.get_other_slot(),
+                    ))
+                }
+                choices
+            }
+            // Single Target Move (target already chosen)
+            MoveChoiceTarget::Normal => {
+                vec![(attacker_choice_index, target_side, target_slot)]
+            }
+            _ => vec![(attacker_choice_index, target_side, target_slot)],
+        };
+
+    let original_choice = move_choices[attacker_choice_index].clone();
+    let is_spread = matches!(
+        original_choice.move_choice_target,
+        MoveChoiceTarget::AllFoes | MoveChoiceTarget::AllOther
+    );
+    let other_side = state.get_side_immutable(attacking_side.get_other_side());
+    let mut target_count = [SlotReference::SlotA, SlotReference::SlotB]
+        .iter()
+        .filter(|slot| other_side.get_active_immutable(slot).hp > 0)
+        .count();
+    if original_choice.move_choice_target == MoveChoiceTarget::AllOther
+        && state
+            .get_side_immutable(attacking_side)
+            .get_active_immutable(&attacking_slot.get_other_slot())
+            .hp
+            > 0
     {
-        // Spread Move
-        MoveChoiceTarget::AllFoes => {
-            // find all targets with more than 1 hp
-            let mut choices = Vec::with_capacity(2);
-            let target_side = state.get_side_immutable(attacking_side.get_other_side());
-            let slot_a_alive = target_side.get_active_immutable(&SlotReference::SlotA).hp > 0;
-            let slot_b_alive = target_side.get_active_immutable(&SlotReference::SlotB).hp > 0;
-            if slot_a_alive && slot_b_alive {
-                choices.push((
-                    attacker_choice_index,
-                    attacking_side.get_other_side(),
-                    SlotReference::SlotA,
-                ));
-                choices.push((
-                    attacker_choice_index,
-                    attacking_side.get_other_side(),
-                    SlotReference::SlotB,
-                ));
-            } else if slot_a_alive {
-                move_choices[attacker_choice_index].move_choice_target = MoveChoiceTarget::Normal;
-                choices.push((
-                    attacker_choice_index,
-                    attacking_side.get_other_side(),
-                    SlotReference::SlotA,
-                ));
-            } else if slot_b_alive {
-                move_choices[attacker_choice_index].move_choice_target = MoveChoiceTarget::Normal;
-                choices.push((
-                    attacker_choice_index,
-                    attacking_side.get_other_side(),
-                    SlotReference::SlotB,
-                ));
-            }
-            choices
-        }
-        // Targets Everyone except the user
-        MoveChoiceTarget::AllOther => {
-            let mut choices = Vec::with_capacity(3);
-            let other_side_ref = attacking_side.get_other_side();
-            if state
-                .get_side_immutable(other_side_ref)
-                .get_active_immutable(&SlotReference::SlotA)
-                .hp
-                > 0
-            {
-                choices.push((attacker_choice_index, other_side_ref, SlotReference::SlotA))
-            }
-            if state
-                .get_side_immutable(other_side_ref)
-                .get_active_immutable(&SlotReference::SlotB)
-                .hp
-                > 0
-            {
-                choices.push((attacker_choice_index, other_side_ref, SlotReference::SlotB))
-            }
-            let ally_pkmn = state
-                .get_side_immutable(attacking_side)
-                .get_active_immutable(&attacking_slot.get_other_slot());
-            if ally_pkmn.hp > 0 && ally_pkmn.ability != Abilities::TELEPATHY {
-                choices.push((
-                    attacker_choice_index,
-                    attacking_side,
-                    attacking_slot.get_other_slot(),
-                ))
-            }
-            if choices.len() < 2 {
-                move_choices[attacker_choice_index].move_choice_target = MoveChoiceTarget::Normal;
-            }
-            choices
-        }
-        // Single Target Move (target already chosen)
-        MoveChoiceTarget::Normal => {
-            vec![(attacker_choice_index, target_side, target_slot)]
-        }
-        _ => vec![(attacker_choice_index, target_side, target_slot)],
-    };
+        target_count += 1;
+    }
+    let neutralizing_gas = state.neutralizing_gas_is_active();
+    let targets: Vec<_> = choices
+        .into_iter()
+        .map(|(index, side_ref, slot_ref)| {
+            let partner = state
+                .get_side_immutable(side_ref)
+                .get_active_immutable(&slot_ref.get_other_slot());
+            let friend_guard = partner.hp > 0
+                && partner.ability == Abilities::FRIENDGUARD
+                && (!neutralizing_gas || partner.item == Items::ABILITYSHIELD);
+            (index, side_ref, slot_ref, friend_guard)
+        })
+        .collect();
+    let self_boost = original_choice
+        .boost
+        .as_ref()
+        .filter(|boost| is_spread && boost.target == MoveTarget::User)
+        .cloned();
 
     state.reverse_instructions(&incoming_instructions.instruction_list);
-    let mut state_instructions_vec: Vec<(StateInstructions, Vec<RemainingToMove>)> =
-        Vec::with_capacity(16);
-    state_instructions_vec.push((incoming_instructions, remaining_to_move));
-
-    let len = choices.len();
-    for (i, (current_attacker_choice_index, current_target_side, current_target_slot)) in
-        choices.into_iter().enumerate()
+    // Track successful damage separately on each chance branch. An immune,
+    // protected or missed last target cannot erase an earlier successful hit.
+    let mut branches = vec![(incoming_instructions, remaining_to_move, false)];
+    let len = targets.len();
+    for (i, (index, current_target_side, current_target_slot, friend_guard)) in
+        targets.into_iter().enumerate()
     {
-        let mut next_state_instructions_vec = Vec::with_capacity(16);
-        let final_run_move = i == len - 1; // true only on the final iteration
-
-        for (state_instruction, remaining_moves) in state_instructions_vec {
+        let mut next_branches = Vec::with_capacity(16);
+        for (instructions, remaining_moves, hit_before) in branches {
+            let mut results = Vec::with_capacity(16);
+            let mut successful_hits = Vec::new();
+            let mut choice = move_choices[index].clone();
+            choice.first_target = i == 0;
+            if is_spread {
+                choice.spread_hit = Some(target_count > 1);
+                choice.target_ally_friend_guard = Some(friend_guard);
+                choice.defer_self_effects = true;
+                if self_boost.is_some() {
+                    choice.boost = None;
+                }
+            }
             run_move(
                 state,
-                &mut move_choices[current_attacker_choice_index].clone(),
+                &mut choice,
                 &move_choices[target_choice_index],
                 attacking_side,
                 attacking_slot,
                 current_target_side,
                 current_target_slot,
-                state_instruction,
-                &mut next_state_instructions_vec,
+                instructions,
+                &mut results,
                 remaining_moves,
-                final_run_move,
+                i == len - 1,
                 branch_on_damage,
+                &mut successful_hits,
             );
+            for (result_index, (instructions, remaining_moves)) in results.into_iter().enumerate() {
+                next_branches.push((
+                    instructions,
+                    remaining_moves,
+                    hit_before || successful_hits.contains(&result_index),
+                ));
+            }
         }
+        branches = next_branches;
+    }
 
-        state_instructions_vec = next_state_instructions_vec;
+    let mut state_instructions_vec = Vec::with_capacity(branches.len());
+    for (mut instructions, remaining_moves, hit) in branches {
+        if is_spread && hit {
+            state.apply_instructions(&instructions.instruction_list);
+            if let Some(boost) = &self_boost {
+                get_instructions_from_boosts(
+                    state,
+                    boost,
+                    attacking_side,
+                    &attacking_slot,
+                    target_side,
+                    &target_slot,
+                    &mut instructions,
+                );
+            }
+            let attacker = state
+                .get_side_immutable(attacking_side)
+                .get_active_immutable(&attacking_slot);
+            if attacker.hp > 0
+                && attacker.item == Items::LIFEORB
+                && attacker.ability != Abilities::MAGICGUARD
+            {
+                get_instructions_from_heal(
+                    state,
+                    &Heal {
+                        target: MoveTarget::User,
+                        amount: -0.1,
+                    },
+                    attacking_side,
+                    &attacking_slot,
+                    target_side,
+                    &target_slot,
+                    &mut instructions,
+                );
+            }
+            state.reverse_instructions(&instructions.instruction_list);
+        }
+        state_instructions_vec.push((instructions, remaining_moves));
     }
 
     // end-of-move effects
@@ -2639,6 +2726,7 @@ fn run_move(
     remaining_to_move: Vec<RemainingToMove>,
     final_run_move: bool,
     branch_on_damage: bool,
+    successful_hits: &mut Vec<usize>,
 ) {
     if state.use_damage_dealt {
         reset_damage_dealt(
@@ -2699,9 +2787,10 @@ fn run_move(
 
     let side = state.get_side(attacking_side);
     let slot = side.get_slot(&attacking_slot);
-    if slot
-        .volatile_statuses
-        .contains(&PokemonVolatileStatus::ENCORE)
+    if choice.first_target
+        && slot
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::ENCORE)
     {
         match slot.last_used_move {
             LastUsedMove::Move(last_used_move) => {
@@ -2756,9 +2845,10 @@ fn run_move(
     }
 
     let slot = side.get_slot(&attacking_slot);
-    if slot
-        .volatile_statuses
-        .contains(&PokemonVolatileStatus::TAUNT)
+    if choice.first_target
+        && slot
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::TAUNT)
     {
         match slot.volatile_status_durations.taunt {
             0 | 1 => {
@@ -3059,6 +3149,7 @@ fn run_move(
                 remaining_to_move.clone(),
                 final_run_move,
                 false,
+                successful_hits,
             );
         }
         return;
@@ -3220,6 +3311,7 @@ fn run_move(
     }
 
     if incoming_instructions.percentage != 0.0 {
+        let result_start = final_instructions.len();
         execute_move_effects(
             state,
             attacking_side,
@@ -3238,6 +3330,9 @@ fn run_move(
             &remaining_to_move,
             final_run_move,
         );
+        if does_damage && choice.defer_self_effects {
+            successful_hits.extend(result_start..final_instructions.len());
+        }
     } else {
         state.reverse_instructions(&incoming_instructions.instruction_list);
     }
@@ -3246,6 +3341,7 @@ fn run_move(
     if let Some(branch_ins) = branch_instructions {
         if branch_ins.percentage != 0.0 {
             state.apply_instructions(&branch_ins.instruction_list);
+            let result_start = final_instructions.len();
             execute_move_effects(
                 state,
                 attacking_side,
@@ -3264,6 +3360,9 @@ fn run_move(
                 &remaining_to_move,
                 final_run_move,
             );
+            if does_damage && choice.defer_self_effects {
+                successful_hits.extend(result_start..final_instructions.len());
+            }
         }
     }
 
@@ -5645,42 +5744,25 @@ pub fn calculate_damage_rolls(
         &mut incoming_instructions,
     );
 
-    // Spread move 0.75x damage if there are two targets
-    if choice.move_choice_target == MoveChoiceTarget::AllFoes {
-        let target_side = if attacking_side_ref == SideReference::SideOne {
-            &state.sides[1]
-        } else {
-            &state.sides[0]
-        };
-        if target_side.get_active_immutable(&SlotReference::SlotA).hp == 0
-            || target_side.get_active_immutable(&SlotReference::SlotB).hp == 0
+    if matches!(
+        choice.move_choice_target,
+        MoveChoiceTarget::AllFoes | MoveChoiceTarget::AllOther
+    ) {
+        let foes = state.get_side_immutable(attacking_side_ref.get_other_side());
+        let mut targets = [SlotReference::SlotA, SlotReference::SlotB]
+            .iter()
+            .filter(|slot| foes.get_active_immutable(slot).hp > 0)
+            .count();
+        if choice.move_choice_target == MoveChoiceTarget::AllOther
+            && state
+                .get_side_immutable(attacking_side_ref)
+                .get_active_immutable(&attacking_slot_ref.get_other_slot())
+                .hp
+                > 0
         {
-            choice.move_choice_target = MoveChoiceTarget::Normal;
+            targets += 1;
         }
-    } else if choice.move_choice_target == MoveChoiceTarget::AllOther {
-        let (our_side, target_side) = if attacking_side_ref == SideReference::SideOne {
-            (&state.sides[0], &state.sides[1])
-        } else {
-            (&state.sides[1], &state.sides[0])
-        };
-        let mut num_alive_targets = 0;
-        if target_side.get_active_immutable(&SlotReference::SlotA).hp > 0 {
-            num_alive_targets += 1;
-        }
-        if target_side.get_active_immutable(&SlotReference::SlotB).hp > 0 {
-            num_alive_targets += 1;
-        }
-        if our_side
-            .get_active_immutable(&attacking_slot_ref.get_other_slot())
-            .hp
-            > 0
-        {
-            num_alive_targets += 1;
-        }
-
-        if num_alive_targets == 1 {
-            choice.move_choice_target = MoveChoiceTarget::Normal;
-        }
+        choice.spread_hit = Some(targets > 1);
     }
 
     if choice.move_id == Choices::FUTURESIGHT {

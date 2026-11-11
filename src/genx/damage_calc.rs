@@ -599,9 +599,10 @@ fn common_pkmn_damage_calc(
     damage_modifier *= burn_modifier(&choice.category, &attacker.status);
     damage_modifier *= volatile_status_modifier(&choice, attacking_slot, target_slot);
     damage_modifier *= terrain_modifier(terrain, attacker, defender, &choice);
-    if choice.move_choice_target == MoveChoiceTarget::AllFoes
-        || choice.move_choice_target == MoveChoiceTarget::AllOther
-    {
+    if choice.spread_hit.unwrap_or(matches!(
+        choice.move_choice_target,
+        MoveChoiceTarget::AllFoes | MoveChoiceTarget::AllOther
+    )) {
         damage_modifier *= 0.75;
     }
 

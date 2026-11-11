@@ -1302,6 +1302,7 @@ pub fn item_modify_attack_being_used(
                     .ability
                     != Abilities::MAGICGUARD
                     && final_run_move
+                    && !attacking_choice.defer_self_effects
                 {
                     attacking_choice.add_or_create_secondaries(Secondary {
                         chance: 100.0,

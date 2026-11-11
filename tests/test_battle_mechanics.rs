@@ -3246,7 +3246,7 @@ fn test_direct_boost_with_spread_move_only_boosts_once() {
                     side_ref: SideReference::SideOne,
                     slot_ref: SlotReference::SlotA,
                     stat: PokemonBoostableStat::SpecialAttack,
-                    amount: -1,
+                    amount: -2,
                 }),
             ],
         },
@@ -3263,7 +3263,7 @@ fn test_direct_boost_with_spread_move_only_boosts_once() {
                     side_ref: SideReference::SideOne,
                     slot_ref: SlotReference::SlotA,
                     stat: PokemonBoostableStat::SpecialAttack,
-                    amount: -1,
+                    amount: -2,
                 }),
             ],
         },
@@ -3276,14 +3276,12 @@ fn test_direct_boost_with_spread_move_only_boosts_once() {
                     pokemon_index: PokemonIndex::P0,
                     damage_amount: 37,
                 }),
-                // known bug: only the final hit of a spread move applies choice.boost (like with makeitrain),
-                // but this is complete jank and needs to be refactored so that _any_ hit of a spread move applies a boost
-                // Instruction::Boost(BoostInstruction {
-                //     side_ref: SideReference::SideOne,
-                //     slot_ref: SlotReference::SlotA,
-                //     stat: PokemonBoostableStat::SpecialAttack,
-                //     amount: -1,
-                // }),
+                Instruction::Boost(BoostInstruction {
+                    side_ref: SideReference::SideOne,
+                    slot_ref: SlotReference::SlotA,
+                    stat: PokemonBoostableStat::SpecialAttack,
+                    amount: -2,
+                }),
             ],
         },
     ];
