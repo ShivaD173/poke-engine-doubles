@@ -201,7 +201,7 @@ No priority or availability claim is implied for them.
 
 The separate [client known-issues document](https://github.com/ShivaD173/foul-play-doubles/blob/main/docs/known-issues.md)
 records the engine dependency/build settings, omitted stages, fragile startup
-message handling, best-of-three assumptions, and preview concurrency issue.
+message handling, and best-of-three assumptions.
 Pushing the engine source does not automatically replace the client's pinned
 published engine. Build/install this checkout with the `mega` feature as
 explained in the [installation instructions](champions-spread-audit.md#validation).
