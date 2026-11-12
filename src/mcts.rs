@@ -440,8 +440,12 @@ pub fn perform_mcts(
     #[cfg(feature = "mcts_stats")]
     print_tree_stats(&root_node, &children);
 
-    let result = MctsResult {
-        s1: root_node
+    collect_result(&root_node)
+}
+
+fn collect_result(root: &Node) -> MctsResult {
+    MctsResult {
+        s1: root
             .s1_options
             .as_ref()
             .unwrap()
@@ -452,7 +456,7 @@ pub fn perform_mcts(
                 visits: v.visits,
             })
             .collect(),
-        s2: root_node
+        s2: root
             .s2_options
             .as_ref()
             .unwrap()
@@ -463,10 +467,8 @@ pub fn perform_mcts(
                 visits: v.visits,
             })
             .collect(),
-        iteration_count: root_node.times_visited,
-    };
-
-    result
+        iteration_count: root.times_visited,
+    }
 }
 
 // debug helper: walks the built tree from `root` via the children map and
@@ -578,4 +580,39 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         assert_eq!(branch.sample(&mut rng), expected);
     }
+}
+
+/// Fixed-work, seeded profiling entry point. Production searches use ThreadRng.
+/// The measured duration covers only iterations, excluding setup and destruction.
+#[cfg(feature = "benchmark_mcts")]
+pub fn benchmark_mcts(
+    state: &mut State,
+    mut side_one_options: Vec<(MoveChoice, MoveChoice)>,
+    mut side_two_options: Vec<(MoveChoice, MoveChoice)>,
+    iterations: u32,
+    seed: u64,
+) -> (MctsResult, Duration) {
+    assert!(iterations > 0 && iterations <= 25_000_000);
+    let mut root = Node::new(0);
+    unsafe {
+        root.populate(&mut side_one_options, &mut side_two_options);
+    }
+    root.root = true;
+    let mut options = MoveOptions::new();
+    let mut children = HashMap::new();
+    let root_eval = evaluate(state);
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+    let started = std::time::Instant::now();
+    for _ in 0..iterations {
+        do_mcts(
+            &mut root,
+            state,
+            &root_eval,
+            &mut options,
+            &mut children,
+            &mut rng,
+        );
+    }
+    let elapsed = started.elapsed();
+    (collect_result(&root), elapsed)
 }

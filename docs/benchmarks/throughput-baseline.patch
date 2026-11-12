@@ -1,0 +1,112 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index fcbb94c..7c28b94 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -31,0 +32 @@ benchmark_allocations = []
++benchmark_mcts = []
+diff --git a/examples/benchmark_mcts.rs b/examples/benchmark_mcts.rs
+index 3714a02..049cc12 100644
+--- a/examples/benchmark_mcts.rs
++++ b/examples/benchmark_mcts.rs
+@@ -143,0 +144,40 @@ fn main() {
++    #[cfg(feature = "benchmark_mcts")]
++    if let Some(iterations) = args.get(4) {
++        assert_eq!(threads, 1, "Fixed-work profiling uses one native thread");
++        let seed = args.get(5).map(|s| s.parse().unwrap()).unwrap_or(42);
++        #[cfg(feature = "benchmark_allocations")]
++        allocations::COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
++        let started = Instant::now();
++        let (result, search_time) = poke_engine::mcts::benchmark_mcts(
++            &mut s,
++            options.side_one_combined_options,
++            options.side_two_combined_options,
++            iterations.parse().unwrap(),
++            seed,
++        );
++        let total_time = started.elapsed();
++        assert_eq!(before, s.serialize());
++        let mut fingerprint = 0xcbf29ce484222325u64;
++        for side in [&result.s1, &result.s2].iter() {
++            for option in side.iter() {
++                for value in [
++                    option.move_choice.0.to_u8() as u32,
++                    option.move_choice.1.to_u8() as u32,
++                    option.total_score.to_bits(),
++                    option.visits,
++                ]
++                .iter()
++                {
++                    fingerprint = (fingerprint ^ *value as u64).wrapping_mul(0x100000001b3);
++                }
++            }
++        }
++        #[cfg(feature = "benchmark_allocations")]
++        println!(
++            "ALLOCATIONS total={}",
++            allocations::COUNT.load(std::sync::atomic::Ordering::Relaxed)
++        );
++        println!("FIXED name={} seed={} iterations={} search_seconds={:.6} total_seconds={:.6} policy={:016x}",
++                 name, seed, result.iteration_count, search_time.as_secs_f64(), total_time.as_secs_f64(), fingerprint);
++        return;
++    }
+@@ -174 +214 @@ fn main() {
+-    println!("BENCH name={} threads={} joint_options={}/{} iterations={} seconds={:.6} iterations_per_second={:.0}",name,threads,n1,n2,result.iteration_count,elapsed,result.iteration_count as f64/elapsed);
++    println!("BENCH name={} threads={} joint_options={}/{} iterations={} budget_ms={} total_seconds={:.6}",name,threads,n1,n2,result.iteration_count,millis,elapsed);
+diff --git a/src/mcts.rs b/src/mcts.rs
+index 6d91922..8818c47 100644
+--- a/src/mcts.rs
++++ b/src/mcts.rs
+@@ -443,2 +443,6 @@ pub fn perform_mcts(
+-    let result = MctsResult {
+-        s1: root_node
++    collect_result(&root_node)
++}
++
++fn collect_result(root: &Node) -> MctsResult {
++    MctsResult {
++        s1: root
+@@ -455 +459 @@ pub fn perform_mcts(
+-        s2: root_node
++        s2: root
+@@ -466,4 +470,2 @@ pub fn perform_mcts(
+-        iteration_count: root_node.times_visited,
+-    };
+-
+-    result
++        iteration_count: root.times_visited,
++    }
+@@ -581,0 +584,34 @@ mod tests {
++
++/// Fixed-work, seeded profiling entry point. Production searches use ThreadRng.
++/// The measured duration covers only iterations, excluding setup and destruction.
++#[cfg(feature = "benchmark_mcts")]
++pub fn benchmark_mcts(
++    state: &mut State,
++    mut side_one_options: Vec<(MoveChoice, MoveChoice)>,
++    mut side_two_options: Vec<(MoveChoice, MoveChoice)>,
++    iterations: u32,
++    seed: u64,
++) -> (MctsResult, Duration) {
++    let mut root = Node::new(0);
++    unsafe {
++        root.populate(&mut side_one_options, &mut side_two_options);
++    }
++    root.root = true;
++    let mut options = MoveOptions::new();
++    let mut children = HashMap::new();
++    let root_eval = evaluate(state);
++    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
++    let started = std::time::Instant::now();
++    for _ in 0..iterations {
++        do_mcts(
++            &mut root,
++            state,
++            &root_eval,
++            &mut options,
++            &mut children,
++            &mut rng,
++        );
++    }
++    let elapsed = started.elapsed();
++    (collect_result(&root), elapsed)
++}

@@ -260,19 +260,53 @@ fn mcts_searches_joint_spread_actions_and_restores_the_root() {
                 &mut state,
                 options.side_one_combined_options,
                 options.side_two_combined_options,
-                Duration::from_millis(5),
+                Duration::from_millis(100),
             )
         } else {
             perform_mcts_shared_tree(
                 &mut state,
                 options.side_one_combined_options,
                 options.side_two_combined_options,
-                Duration::from_millis(5),
+                Duration::from_millis(100),
                 threads,
             )
         };
         assert!(result.iteration_count > 0);
         assert!(!result.s1.is_empty());
         assert_eq!(state.serialize(), before);
+    }
+}
+
+#[cfg(feature = "benchmark_mcts")]
+#[test]
+fn fixed_work_search_respects_its_seed_count_and_root_state() {
+    use poke_engine::mcts::benchmark_mcts;
+
+    let mut state = State::default();
+    for side in &mut state.sides {
+        for (index, pkmn) in side.pokemon.pkmn.iter_mut().enumerate() {
+            if index >= 2 {
+                pkmn.hp = 0;
+            } else {
+                pkmn.replace_move(M::M0, Choices::ROCKSLIDE);
+                pkmn.replace_move(M::M1, Choices::PROTECT);
+            }
+        }
+    }
+    let before = state.serialize();
+    let (s1, s2) = state.root_get_all_options();
+    let (first, _) = benchmark_mcts(&mut state, s1.clone(), s2.clone(), 2_000, 42);
+    assert_eq!(before, state.serialize());
+    let (second, _) = benchmark_mcts(&mut state, s1, s2, 2_000, 42);
+    assert_eq!(before, state.serialize());
+    assert_eq!(first.iteration_count, 2_000);
+    assert_eq!(second.iteration_count, 2_000);
+    for (a, b) in [(&first.s1, &second.s1), (&first.s2, &second.s2)].iter() {
+        assert_eq!(a.len(), b.len());
+        for (a, b) in a.iter().zip(b.iter()) {
+            assert_eq!(a.move_choice, b.move_choice);
+            assert_eq!(a.visits, b.visits);
+            assert_eq!(a.total_score.to_bits(), b.total_score.to_bits());
+        }
     }
 }

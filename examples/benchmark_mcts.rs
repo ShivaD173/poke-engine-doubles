@@ -11,7 +11,12 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "benchmark_allocations")]
 mod allocations {
-    use std::alloc::{GlobalAlloc, Layout, System};
+    #[cfg(not(feature = "system_allocator"))]
+    use mimalloc::MiMalloc as Backend;
+    #[cfg(feature = "system_allocator")]
+    use std::alloc::System as Backend;
+    use std::alloc::{GlobalAlloc, Layout};
+    static BACKEND: Backend = Backend;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     pub static COUNT: AtomicU64 = AtomicU64::new(0);
@@ -19,17 +24,24 @@ mod allocations {
     unsafe impl GlobalAlloc for CountingAllocator {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
             COUNT.fetch_add(1, Ordering::Relaxed);
-            System.alloc(layout)
+            BACKEND.alloc(layout)
         }
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            System.dealloc(ptr, layout)
+            BACKEND.dealloc(ptr, layout)
         }
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
             COUNT.fetch_add(1, Ordering::Relaxed);
-            System.realloc(ptr, layout, size)
+            BACKEND.realloc(ptr, layout, size)
         }
     }
 }
+
+#[cfg(all(
+    not(feature = "benchmark_allocations"),
+    not(feature = "system_allocator")
+))]
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[cfg(feature = "benchmark_allocations")]
 #[global_allocator]
@@ -141,6 +153,51 @@ fn main() {
     s.get_all_options(&mut options);
     let n1 = options.side_one_combined_options.len();
     let n2 = options.side_two_combined_options.len();
+    #[cfg(not(feature = "benchmark_mcts"))]
+    assert!(
+        args.get(4).is_none(),
+        "Fixed-work profiling requires --features benchmark_mcts"
+    );
+    #[cfg(feature = "benchmark_mcts")]
+    if let Some(iterations) = args.get(4) {
+        assert_eq!(threads, 1, "Fixed-work profiling uses one native thread");
+        let seed = args.get(5).map(|s| s.parse().unwrap()).unwrap_or(42);
+        #[cfg(feature = "benchmark_allocations")]
+        allocations::COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+        let started = Instant::now();
+        let (result, search_time) = poke_engine::mcts::benchmark_mcts(
+            &mut s,
+            options.side_one_combined_options,
+            options.side_two_combined_options,
+            iterations.parse().unwrap(),
+            seed,
+        );
+        let total_time = started.elapsed();
+        assert_eq!(before, s.serialize());
+        let mut fingerprint = 0xcbf29ce484222325u64;
+        for side in [&result.s1, &result.s2].iter() {
+            for option in side.iter() {
+                for value in [
+                    option.move_choice.0.to_u8() as u32,
+                    option.move_choice.1.to_u8() as u32,
+                    option.total_score.to_bits(),
+                    option.visits,
+                ]
+                .iter()
+                {
+                    fingerprint = (fingerprint ^ *value as u64).wrapping_mul(0x100000001b3);
+                }
+            }
+        }
+        #[cfg(feature = "benchmark_allocations")]
+        println!(
+            "ALLOCATIONS total={}",
+            allocations::COUNT.load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!("FIXED name={} seed={} iterations={} search_seconds={:.6} total_seconds={:.6} policy={:016x}",
+                 name, seed, result.iteration_count, search_time.as_secs_f64(), total_time.as_secs_f64(), fingerprint);
+        return;
+    }
     #[cfg(feature = "benchmark_allocations")]
     allocations::COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
     let started = Instant::now();
@@ -171,5 +228,5 @@ fn main() {
             count as f64 / result.iteration_count as f64
         );
     }
-    println!("BENCH name={} threads={} joint_options={}/{} iterations={} seconds={:.6} iterations_per_second={:.0}",name,threads,n1,n2,result.iteration_count,elapsed,result.iteration_count as f64/elapsed);
+    println!("BENCH name={} threads={} joint_options={}/{} iterations={} budget_ms={} total_seconds={:.6}",name,threads,n1,n2,result.iteration_count,millis,elapsed);
 }

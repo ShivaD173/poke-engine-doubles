@@ -1,140 +1,160 @@
-# MCTS performance
+# MCTS iteration throughput
 
 Target: `[Gen 9 Champions] VGC 2026 Reg M-C`, built with `mega`.
 
-## Changes
+The objective here is **more MCTS iterations within the search budget**.
+Baseline commit `132430e` already contains the previous sampler and diagnostics
+changes. The earlier [latency report](performance-latency-2026-11-12.md) measured
+complete return times; those figures do not establish faster search iterations.
 
-1. Full-tree diagnostics are opt-in through the `mcts_stats` Cargo feature.
-   Previously every completed search built extra maps, walked the entire tree,
-   and printed its shape **after** the search deadline. This affected both
-   single-threaded and shared-tree searches.
-2. Single-threaded MCTS stores a chance distribution with each generated branch.
-   Previously every visit built a temporary weights vector and a new
-   `WeightedIndex`. Selection now reuses the distribution, and deterministic
-   branches return their only node immediately. Branch weights are immutable
-   throughout the search. Non-normalized weights and zero-probability outcomes
-   retain their weighted-sampling behavior.
-3. The random-number generator handle is obtained once per search and passed
-   through selection and expansion.
+## Changes inside the search
 
-The shared-tree engine already reused its random-number generators and had an
-allocation-free weighted sampler; its only change is the diagnostics flag.
-MCTS depth limits, evaluation, move selection, widening, damage branching,
-iteration cap, and battle mechanics are unchanged. Random streams and resulting
-move choices are not expected to be identical between runs.
+The CLI and Python-extension entry points now use **mimalloc for Rust
+allocations**, replacing the system allocator. This targets the numerous
+allocations and frees performed while generating branches and growing the tree.
+The Rust library itself does not declare a global allocator, so applications
+embedding it retain control of their allocator. Python's own allocator is
+unchanged. A `system_allocator` build feature provides an opt-out for comparison.
 
-The client separately reuses worker processes and avoids an unnecessary battle
-copy. See its [performance notes](https://github.com/ShivaD173/foul-play-doubles/blob/main/docs/performance.md).
+No production selection, expansion, rollout, or backpropagation logic changes
+are included. A shared result-construction helper supports the new profiling
+entry point. Other code-level trials were inconclusive and are not included.
 
-## Measurement
+Search depths, visit caps, sample counts, evaluation weights, damage branching,
+move-order rules, and battle mechanics remain unchanged. The client continues to
+use its existing process parallelism and one native search thread per sample.
 
-Baseline: engine commit `0dd4eab`, before these changes. Both versions use the
-same fixed-position benchmark, checked-in dependency lockfile, release profile,
-and `mega` feature. Machine: AMD EPYC 9V74, Linux x86-64, **two-CPU quota**, 8 GiB
-memory limit; Rust 1.99.1. Run the binaries directly after building so compile
-time is excluded. Baseline and optimized versions run serially in alternating
-order, three repetitions per position and thread count, with a 10,000 ms budget.
+## Measurements
 
-The `opening` fixture has two active Pokémon and two living reserves per side,
-with 47 versus 61 joint actions at the root. `chance-heavy` replaces attacks
-with Rock Slide, Heat Wave, Blizzard, and Discharge, producing 34 versus 34
-joint actions. These are **synthetic workloads**, including combinations of
-species and moves that need not be legal. They test search costs, not team
-strength or replay fidelity. The `endgame` fixture is also available but is not
-part of the comparison table.
+The shared dependencies remain locked; optimized entry points add mimalloc
+0.1.52. Baseline and optimized binaries use the
+same synthetic fixtures in `examples/benchmark_mcts.rs`. The baseline receives
+only the [profiling-helper patch](benchmarks/throughput-baseline.patch), without
+any of the runtime optimizations above.
 
-Elapsed time measures the complete native call, including tree destruction.
-Thus a 10-second budget can take longer than 10 seconds to return. Single-thread
-search also checks its deadline in batches of 1,000 iterations. Throughput below
-is iterations divided by complete elapsed time. One native thread uses the
-existing depth-four search; two threads use the existing depth-six shared-tree
-search. Compare each row against its own baseline.
+Machine: AMD EPYC 9V74, Linux x86-64, two-CPU quota, Rust 1.99.1. Both binaries
+are warmed up before measurement. Benchmark processes are pinned to the same
+available CPU, run serially, and alternate baseline/optimized order across
+three repetitions.
 
-Medians from the three runs (old → optimized):
+Two different comparisons are kept separate:
 
-Each metric is summarized independently; throughput gains compare the median
-per-run rates.
+1. **Fixed work:** 500,000 opening iterations or 150,000 chance-heavy iterations,
+   using seeds 42, 777, and 2026. The timer covers only the iteration loop,
+   excluding initialization, result construction, and tree destruction.
+2. **Fixed budget:** normal stochastic searches with a 10,000 ms budget. The
+   reported metric is their iteration count, not iterations divided by complete
+   return time. The existing 1,000-iteration deadline-check batches remain.
 
-| Position | Native threads | Iterations per budget | Return time (s) | Complete-call throughput gain |
-| --- | ---: | ---: | ---: | ---: |
-| opening | 1 | 1,263,000 → 1,234,000 | 11.249 → 10.681 | +2.5% |
-| opening | 2 | 2,028,000 → 2,140,000 | 12.708 → 11.307 | +17.9% |
-| chance-heavy | 1 | 304,000 → 337,000 | 10.567 → 10.392 | +12.7% |
-| chance-heavy | 2 | 1,047,000 → 1,014,000 | 12.140 → 11.029 | +8.0% |
+The fixed-work mode uses `StdRng` to make each comparison repeatable. Normal
+searches still use the advancing `ThreadRng` stream. Enabling the benchmark
+feature alone does not change the RNG used by normal searches.
 
-The repeatable gain is lower return latency. In-budget iteration counts are
-noisy: the opening single-thread count was slightly lower, while the chance-heavy
-single-thread count was higher. Shared-tree sampling/selection code was unchanged;
-its iteration-count differences reflect run variation, not a new search algorithm.
-These are workload-specific measurements, not a promised speedup for every turn.
+Medians from three normal **10-second search budgets**, one native thread:
 
-| Position | Native threads | Peak resident memory (MiB), old → optimized |
+| Fixture | Before: iterations | After: iterations | Increase |
+| --- | ---: | ---: | ---: |
+| opening | 1,100,000 | 1,359,000 | +23.5% |
+| chance-heavy | 325,000 | 382,000 | +17.5% |
+
+These percentages compare iteration counts inside the configured budget.
+No post-search diagnostic or destruction time is used to calculate them.
+
+Fixed-work kernel throughput gains, paired by seed:
+
+| Fixture | Iterations per seed | Median throughput gain | Range across seeds |
+| --- | ---: | ---: | ---: |
+| opening | 500,000 | +27.0% | +14.2% to +30.8% |
+| chance-heavy | 150,000 | +17.8% | +5.8% to +22.0% |
+
+For fixed work, throughput gain is `before_search_seconds / after_search_seconds - 1`.
+Every fixed-work pair produced the same root-policy fingerprint.
+
+More iterations grow larger trees. Peak resident memory during the budgeted
+searches also increased:
+
+| Fixture | Before: peak MiB | After: peak MiB |
 | --- | ---: | ---: |
-| opening | 1 | 952 → 995 |
-| opening | 2 | 1764 → 1684 |
-| chance-heavy | 1 | 461 → 520 |
-| chance-heavy | 2 | 1538 → 1324 |
+| opening | 902 | 1076 |
+| chance-heavy | 502 | 594 |
 
-Peak memory was measured per child process using `wait4`, including diagnostics
-and tree cleanup. [All 24 raw runs](benchmarks/2026-11-12-mcts.jsonl) retain the
-iteration counts, elapsed times, throughput, and peak RSS.
+These peaks include the complete process and cleanup and were measured with
+Linux `wait4`. They compare the trees actually built within ten seconds, not
+an equal number of allocated nodes. Allocator caches can remain resident in
+reused workers. [All 24 per-run measurements](benchmarks/2026-11-12-throughput.jsonl)
+include the complete return time, CPU usage, and peak RSS for auditing.
 
-An instrumented two-second opening run counted **54.114 → 51.366 allocation/
-reallocation calls per iteration** (about 5.1% fewer). This includes the removed
-diagnostics and varies with the explored tree. The instrumented wall times are
-excluded from the table.
+The fixed-work comparisons verify an identical fingerprint of every root
+policy's action, visit count, and exact floating-point score bits. Each call also
+verifies that the root state is restored. This checks matching policy statistics for the controlled workloads. The
+production search algorithm itself is unchanged.
 
-Caching distributions retains their cumulative weights until the tree is
-destroyed. This trades additional storage per chance branch for fewer temporary
-allocations. Faster searches can also build larger trees within the same time
-budget. Worker reuse in the client keeps idle processes and allocator caches
-resident. Neither change should be treated as a memory optimization.
+These are small synthetic benchmarks, not legal teams or battle replays. The
+opening fixture has two active Pokémon and two reserves per side, with 47/61
+root actions. The chance-heavy fixture uses Rock Slide, Heat Wave, Blizzard,
+and Discharge, with 34/34 root actions. Position, random trajectory, hardware,
+and compiler version affect iteration counts. Three repetitions do not establish
+a universal speedup or a playing-strength improvement.
 
-The tests cover weighted sampling, real single-threaded and shared-tree MCTS,
-root-state restoration, and the existing mechanics regressions. The optional
-diagnostics build is tested as well. Pokémon Showdown was not modified.
+## Reproduce
 
-## Repeat locally
+Build in this checkout:
 
 ```sh
-cargo build --locked --release --no-default-features --features mega --example benchmark_mcts
+cargo build --locked --release --no-default-features --features mega,benchmark_mcts --example benchmark_mcts
+```
+
+Create a baseline checkout and add only the same measurement helper:
+
+```sh
+git worktree add --detach ../poke-engine-before 132430e
+git -C ../poke-engine-before apply --unidiff-zero "$PWD/docs/benchmarks/throughput-baseline.patch"
+cargo build --manifest-path ../poke-engine-before/Cargo.toml --locked --release --no-default-features --features mega,benchmark_mcts --example benchmark_mcts
+```
+
+Fixed-work invocation, shown for this checkout:
+
+```sh
+./target/release/examples/benchmark_mcts opening 1 10000 500000 42
+./target/release/examples/benchmark_mcts chance-heavy 1 10000 150000 42
+```
+
+The fourth argument selects a fixed iteration count and the fifth selects its
+seed. The duration argument is ignored in that mode. Compare `search_seconds`
+and verify that both binaries return the same `policy` fingerprint. Repeat with
+seeds 777 and 2026, alternating binary order. Run each binary's command separately;
+benchmarking them concurrently introduces CPU and memory competition.
+
+Normal 10-second searches omit the iteration and seed arguments:
+
+```sh
 ./target/release/examples/benchmark_mcts opening 1 10000
-./target/release/examples/benchmark_mcts opening 2 10000
 ./target/release/examples/benchmark_mcts chance-heavy 1 10000
-./target/release/examples/benchmark_mcts chance-heavy 2 10000
 ```
 
-Arguments are position, native thread count, and budget in milliseconds. The
-example also verifies that the serialized root state is unchanged by the search.
-To compare an earlier commit, use a separate checkout and copy this example into
-its `examples` directory before building with the same lockfile and profile.
+Compare their `iterations` fields across repeated runs. The separate `total_seconds`
+field includes post-search cleanup and must not be used as the denominator for
+iterations within the configured budget. Fixed-work profiling supports one
+native thread; normal budgeted benchmarking also supports shared-tree searches.
 
-Allocation counting is optional and adds instrumentation overhead:
+## Installation and remaining opportunities
+
+With both repositories updated and the client's virtualenv active:
 
 ```sh
-cargo run --locked --release --no-default-features --features mega,benchmark_allocations --example benchmark_mcts -- opening 1 2000
+# From foul-play-doubles, with the engine checked out beside it:
+make poke_engine_local GEN=mega
 ```
 
-The counter includes allocator and reallocator calls around the search and root
-verification. Use it to compare counts, not to measure normal runtime. To enable
-it in the old checkout, add the empty `benchmark_allocations = []` feature to
-that checkout's manifest; the engine code itself needs no changes.
+The Python API and bot invocation are unchanged. The mimalloc dependency adds a
+C compilation step. To compare the Python extension with the system allocator,
+add `system_allocator` to its build features:
+`--features poke-engine/mega,system_allocator --no-default-features`.
+For the CLI/benchmark use `--features mega,benchmark_mcts,system_allocator`. `mcts_stats` still enables
+optional full-tree diagnostics; `benchmark_allocations` still enables the example's
+allocation counter. Neither is required for normal play.
 
-For full tree-shape diagnostics, build with `--features mega,mcts_stats`.
-For the Python extension, use
-`--features poke-engine/mega,poke-engine/mcts_stats --no-default-features`.
-Normal Champions installations should use the existing `mega` build command.
-
-## Further candidates
-
-- Instruction generation copies instruction prefixes when creating probability
-  branches. Buffer reuse, arenas, or shared prefixes may reduce the remaining
-  allocation cost, but require checking state apply/reverse behavior carefully.
-- Tree destruction still happens after the search deadline. Arena allocation
-  could reduce this cost; simply deferring destruction to another thread can
-  increase peak memory and compete with the next search.
-- Shared-tree searches use a concurrent child map and atomic visit counters.
-  Profiling on a machine with more available cores is needed before changing
-  their synchronization.
-
-These are source-review candidates, not measured or implemented speedups.
+Instruction-prefix copying, state apply/reverse work, tree destruction, and
+shared-tree synchronization remain candidates for deeper profiling. Reusing
+whole trees across turns would require matching observed state and sampled
+hidden information. Pokémon Showdown was not modified.

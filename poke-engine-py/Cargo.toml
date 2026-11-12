@@ -9,8 +9,10 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
+mimalloc = { version = "0.1", default-features = false }
 pyo3 = { version = "0.22.5", features = ["extension-module"] }
 poke-engine = { path = "../" }
 
 [features]
+system_allocator = ["poke-engine/system_allocator"]
 default = ["poke-engine/terastallization"]

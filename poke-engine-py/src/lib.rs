@@ -1,3 +1,7 @@
+#[cfg(not(feature = "system_allocator"))]
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyType};
 use pyo3::{pyfunction, pymethods, pymodule, wrap_pyfunction, Bound, PyResult};
