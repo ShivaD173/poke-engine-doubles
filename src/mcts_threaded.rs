@@ -628,6 +628,7 @@ pub fn perform_mcts_shared_tree(
         }
     });
 
+    #[cfg(feature = "mcts_stats")]
     print_tree_stats(&root, &children);
 
     let options = root.options.get().expect("root options initialized");
@@ -663,6 +664,7 @@ pub fn perform_mcts_shared_tree(
 // a deep tree (visits concentrated at large depth values) suggests good
 // exploitation; a shallow, wide tree (many leaves at depth 0-1) suggests the
 // search is fanning out at the root without descending.
+#[cfg(feature = "mcts_stats")]
 fn print_tree_stats(root: &Arc<Node>, children: &ChildMap) {
     use std::collections::{HashMap, HashSet};
 

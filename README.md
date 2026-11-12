@@ -14,3 +14,6 @@ lists remaining mechanics differences and how to install this engine in the clie
 
 See [remaining Champions issues](docs/remaining-issues.md) for the unfixed
 mechanics, search approximations, and client integration work.
+
+See [MCTS performance](docs/performance.md) for the sampler optimizations,
+optional tree diagnostics, and reproducible benchmarks.

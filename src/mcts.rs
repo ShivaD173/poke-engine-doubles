@@ -32,6 +32,44 @@ pub struct Node {
     pub s2_options: Option<Vec<MoveNode>>,
 }
 
+// Owns stable node addresses and builds its chance distribution only once.
+// Repeated selection does not allocate or rescan every outcome's weight.
+pub struct ChanceBranch {
+    nodes: Box<[Node]>,
+    distribution: Option<WeightedIndex<f64>>,
+}
+
+impl ChanceBranch {
+    fn new(nodes: Box<[Node]>) -> Self {
+        assert!(!nodes.is_empty(), "Cannot sample an empty chance branch");
+        let distribution = if nodes.len() == 1 {
+            let weight = nodes[0].instructions.percentage;
+            assert!(
+                weight > 0.0 && weight.is_finite(),
+                "Invalid chance branch weight"
+            );
+            None
+        } else {
+            Some(
+                WeightedIndex::new(nodes.iter().map(|node| node.instructions.percentage as f64))
+                    .unwrap(),
+            )
+        };
+        Self {
+            nodes,
+            distribution,
+        }
+    }
+
+    fn sample<R: Rng + ?Sized>(&mut self, rng: &mut R) -> *mut Node {
+        let index = self
+            .distribution
+            .as_ref()
+            .map_or(0, |distribution| distribution.sample(rng));
+        &mut self.nodes[index]
+    }
+}
+
 impl Node {
     fn new(depth: u8) -> Node {
         Node {
@@ -133,11 +171,12 @@ impl Node {
         }
     }
 
-    pub unsafe fn selection(
+    pub unsafe fn selection<R: Rng + ?Sized>(
         &mut self,
         state: &mut State,
         move_options: &mut MoveOptions,
-        children: &mut HashMap<(usize, u16, u16), Box<[Node]>>,
+        children: &mut HashMap<(usize, u16, u16), ChanceBranch>,
+        rng: &mut R,
     ) -> (*mut Node, usize, usize) {
         let return_node = self as *mut Node;
         if self.s1_options.is_none() {
@@ -164,26 +203,13 @@ impl Node {
         let s2_key = self.s2_options.as_ref().unwrap()[s2_mc_index].to_u16();
         let key = (return_node as usize, s1_key, s2_key);
         match children.get_mut(&key) {
-            Some(child_vector) => {
-                let child_vec_ptr = child_vector as *mut Box<[Node]>;
-                let chosen_child = self.sample_node(child_vec_ptr);
+            Some(branch) => {
+                let chosen_child = branch.sample(rng);
                 state.apply_instructions(&(*chosen_child).instructions.instruction_list);
-                (*chosen_child).selection(state, move_options, children)
+                (*chosen_child).selection(state, move_options, children, rng)
             }
             None => (return_node, s1_mc_index, s2_mc_index),
         }
-    }
-
-    unsafe fn sample_node(&self, move_vector: *mut Box<[Node]>) -> *mut Node {
-        let mut rng = rng();
-        let weights: Vec<f64> = (*move_vector)
-            .iter()
-            .map(|x| x.instructions.percentage as f64)
-            .collect();
-        let dist = WeightedIndex::new(weights).unwrap();
-        let chosen_node = &mut (&mut *move_vector)[dist.sample(&mut rng)];
-        let chosen_node_ptr = chosen_node as *mut Node;
-        chosen_node_ptr
     }
 
     fn should_not_expand(
@@ -202,12 +228,13 @@ impl Node {
         }
     }
 
-    pub unsafe fn expand(
+    pub unsafe fn expand<R: Rng + ?Sized>(
         &mut self,
         state: &mut State,
         s1_move_index: usize,
         s2_move_index: usize,
-        children: &mut HashMap<(usize, u16, u16), Box<[Node]>>,
+        children: &mut HashMap<(usize, u16, u16), ChanceBranch>,
+        rng: &mut R,
     ) -> *mut Node {
         if self.depth >= 4 {
             return self as *mut Node;
@@ -247,10 +274,10 @@ impl Node {
 
         // sample a node from the new instruction list.
         // this is the node that the rollout will be done on
-        let mut boxed = this_pair_vec.into_boxed_slice();
-        let new_node_ptr = self.sample_node(&mut boxed);
+        let mut branch = ChanceBranch::new(this_pair_vec.into_boxed_slice());
+        let new_node_ptr = branch.sample(rng);
         state.apply_instructions(&(*new_node_ptr).instructions.instruction_list);
-        children.insert(key, boxed);
+        children.insert(key, branch);
         new_node_ptr
     }
 
@@ -349,16 +376,17 @@ pub struct MctsResult {
     pub iteration_count: u32,
 }
 
-fn do_mcts(
+fn do_mcts<R: Rng + ?Sized>(
     root_node: &mut Node,
     state: &mut State,
     root_eval: &f32,
     move_options: &mut MoveOptions,
-    children: &mut HashMap<(usize, u16, u16), Box<[Node]>>,
+    children: &mut HashMap<(usize, u16, u16), ChanceBranch>,
+    rng: &mut R,
 ) {
     let (mut new_node, s1_move, s2_move) =
-        unsafe { root_node.selection(state, move_options, children) };
-    new_node = unsafe { (*new_node).expand(state, s1_move, s2_move, children) };
+        unsafe { root_node.selection(state, move_options, children, rng) };
+    new_node = unsafe { (*new_node).expand(state, s1_move, s2_move, children, rng) };
     let rollout_result = unsafe { (*new_node).rollout(state, root_eval) };
     unsafe { (*new_node).backpropagate(rollout_result, state) }
 }
@@ -376,8 +404,9 @@ pub fn perform_mcts(
     root_node.root = true;
 
     let mut combined_options = MoveOptions::new();
-    let mut children: HashMap<(usize, u16, u16), Box<[Node]>> = HashMap::new();
+    let mut children: HashMap<(usize, u16, u16), ChanceBranch> = HashMap::new();
     let root_eval = evaluate(state);
+    let mut rng = rng();
     let start_time = std::time::Instant::now();
     while start_time.elapsed() < max_time {
         for _ in 0..1000 {
@@ -387,6 +416,7 @@ pub fn perform_mcts(
                 &root_eval,
                 &mut combined_options,
                 &mut children,
+                &mut rng,
             );
         }
 
@@ -407,6 +437,7 @@ pub fn perform_mcts(
         }
     }
 
+    #[cfg(feature = "mcts_stats")]
     print_tree_stats(&root_node, &children);
 
     let result = MctsResult {
@@ -447,11 +478,12 @@ pub fn perform_mcts(
 // at large depth values) suggests good exploitation; a shallow, wide tree
 // (many leaves at depth 0-1) suggests the search is fanning out at the root
 // without descending.
-fn print_tree_stats(root: &Node, children: &HashMap<(usize, u16, u16), Box<[Node]>>) {
+#[cfg(feature = "mcts_stats")]
+fn print_tree_stats(root: &Node, children: &HashMap<(usize, u16, u16), ChanceBranch>) {
     let mut by_parent: HashMap<usize, Vec<&Node>> = HashMap::new();
     for (key, kids) in children.iter() {
         let bucket = by_parent.entry(key.0).or_default();
-        for child in kids.iter() {
+        for child in kids.nodes.iter() {
             bucket.push(child);
         }
     }
@@ -503,5 +535,47 @@ fn print_tree_stats(root: &Node, children: &HashMap<(usize, u16, u16), Box<[Node
         let v = visits_by_depth[&d];
         let avg = if n > 0 { v as f64 / n as f64 } else { 0.0 };
         println!("{:>5}  {:>12}  {:>12}  {:>14}  {:>12.1}", d, n, l, v, avg);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::rngs::StdRng;
+
+    #[test]
+    fn chance_sampling_preserves_relative_weights_and_skips_zeroes() {
+        let nodes: Box<[Node]> = [0.0, 2.0, 0.0, 6.0, 0.0]
+            .iter()
+            .map(|&weight| {
+                let mut node = Node::new(1);
+                node.instructions.percentage = weight;
+                node
+            })
+            .collect();
+        let mut branch = ChanceBranch::new(nodes);
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut light = 0;
+        for _ in 0..20_000 {
+            let weight = unsafe { (*branch.sample(&mut rng)).instructions.percentage };
+            assert!(weight == 2.0 || weight == 6.0);
+            if weight == 2.0 {
+                light += 1;
+            }
+        }
+        assert!(
+            (4_600..5_400).contains(&light),
+            "light branch sampled {} times",
+            light
+        );
+    }
+
+    #[test]
+    fn singleton_chance_branch_returns_its_only_node() {
+        let mut nodes = vec![Node::new(1)].into_boxed_slice();
+        let expected = &mut nodes[0] as *mut Node;
+        let mut branch = ChanceBranch::new(nodes);
+        let mut rng = StdRng::seed_from_u64(42);
+        assert_eq!(branch.sample(&mut rng), expected);
     }
 }
