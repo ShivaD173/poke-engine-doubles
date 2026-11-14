@@ -17,3 +17,6 @@ mechanics, search approximations, and client integration work.
 
 See [MCTS performance](docs/performance.md) for the sampler optimizations,
 optional tree diagnostics, and reproducible benchmarks.
+
+The current single-threaded search uses corrected action credit, one initial
+visit per action, and a six-turn cap. See [search policy](docs/search-policy.md).

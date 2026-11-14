@@ -2,6 +2,10 @@
 
 Target: `[Gen 9 Champions] VGC 2026 Reg M-C`, built with `mega`.
 
+This report measures commit `ef57d6c`, before the updated exploration policy
+and six-turn cap. See [current search policy](search-policy.md). The recorded
+allocator results remain historical measurements of the earlier search.
+
 The objective here is **more MCTS iterations within the search budget**.
 Baseline commit `132430e` already contains the previous sampler and diagnostics
 changes. The earlier [latency report](performance-latency-2026-11-12.md) measured
@@ -97,6 +101,10 @@ and compiler version affect iteration counts. Three repetitions do not establish
 a universal speedup or a playing-strength improvement.
 
 ## Reproduce
+
+Use a checkout of `ef57d6c` to reproduce the published measurements below.
+Newer versions use a different exploration policy and depth limit, so their
+iteration counts and policy fingerprints need not match this report.
 
 Build in this checkout:
 

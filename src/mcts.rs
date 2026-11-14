@@ -9,7 +9,7 @@ use rand::rng;
 use std::collections::HashMap;
 use std::time::Duration;
 
-const MIN_VISITS_BEFORE_SELECTION: usize = 50;
+const MCTS_MAX_DEPTH: u8 = 6;
 
 fn sigmoid(x: f32) -> f32 {
     // Tuned so that ~400 points is very close to 1.0
@@ -68,6 +68,15 @@ impl ChanceBranch {
             .map_or(0, |distribution| distribution.sample(rng));
         &mut self.nodes[index]
     }
+}
+
+// Edges actually traversed in the current iteration. Option arrays keep a stable
+// order; these indices never have to be inferred from a node's visit count.
+struct PathStep {
+    parent: *mut Node,
+    child: *mut Node,
+    s1_index: usize,
+    s2_index: usize,
 }
 
 impl Node {
@@ -135,50 +144,60 @@ impl Node {
         choice
     }
 
-    fn select_move_index(
-        options: &mut Vec<MoveNode>,
-        times_visited: u32,
-        times_visited_usize: usize,
+    fn select_move_index<R: Rng + ?Sized>(
+        options: &[MoveNode],
+        parent_visits: u32,
+        rng: &mut R,
     ) -> usize {
-        if options.len() * MIN_VISITS_BEFORE_SELECTION == times_visited_usize {
-            options.sort_by(|a, b| b.total_score.total_cmp(&a.total_score));
+        // Try every legal action once, independently for each side. Uniformly
+        // sampling the remaining unvisited actions avoids synchronized cycling.
+        let unvisited = options.iter().filter(|option| option.visits == 0).count();
+        if unvisited > 0 {
+            let rank = rng.random_range(0..unvisited);
+            return options
+                .iter()
+                .enumerate()
+                .filter(|(_, option)| option.visits == 0)
+                .nth(rank)
+                .unwrap()
+                .0;
         }
 
-        if options.len() * MIN_VISITS_BEFORE_SELECTION > times_visited_usize {
-            times_visited_usize % options.len()
-        } else {
-            let first_item = &options[0];
-            let first_item_ucb1 = first_item.ucb1(times_visited);
-
-            let mut index = 1;
-            for i in 1..options.len() {
-                if first_item_ucb1 >= options[i].ucb1(times_visited) {
-                    break;
-                }
-                index += 1;
-            }
-            index -= 1;
-
-            if index > 0 {
-                if index == 1 {
-                    options.swap(0, 1);
-                } else {
-                    let first = options.remove(0);
-                    options.insert(index, first);
+        let exploration = 2.0 * (parent_visits.max(1) as f32).ln();
+        let mut best_score = f32::NEG_INFINITY;
+        let mut best_index = 0;
+        let mut ties = 0;
+        for (index, option) in options.iter().enumerate() {
+            let score = option.ucb1_with_exploration(exploration);
+            if score > best_score {
+                best_score = score;
+                best_index = index;
+                ties = 1;
+            } else if score == best_score {
+                // Equal scores should not align the two sides' choices by
+                // their array order. Reservoir sampling breaks ties uniformly.
+                ties += 1;
+                if rng.random_range(0..ties) == 0 {
+                    best_index = index;
                 }
             }
-            0
         }
+        best_index
     }
 
-    pub unsafe fn selection<R: Rng + ?Sized>(
+    unsafe fn selection<R: Rng + ?Sized>(
         &mut self,
         state: &mut State,
         move_options: &mut MoveOptions,
         children: &mut HashMap<(usize, u16, u16), ChanceBranch>,
+        path: &mut Vec<PathStep>,
         rng: &mut R,
     ) -> (*mut Node, usize, usize) {
         let return_node = self as *mut Node;
+        if self.depth >= MCTS_MAX_DEPTH {
+            // These action indices are never used: expand stops at the cap.
+            return (return_node, 0, 0);
+        }
         if self.s1_options.is_none() {
             state.get_all_options(move_options);
             self.populate(
@@ -187,17 +206,10 @@ impl Node {
             );
         }
 
-        let times_visited_usize = self.times_visited as usize;
-        let s1_mc_index = Self::select_move_index(
-            self.s1_options.as_mut().unwrap(),
-            self.times_visited,
-            times_visited_usize,
-        );
-        let s2_mc_index = Self::select_move_index(
-            self.s2_options.as_mut().unwrap(),
-            self.times_visited,
-            times_visited_usize,
-        );
+        let s1_mc_index =
+            Self::select_move_index(self.s1_options.as_ref().unwrap(), self.times_visited, rng);
+        let s2_mc_index =
+            Self::select_move_index(self.s2_options.as_ref().unwrap(), self.times_visited, rng);
 
         let s1_key = self.s1_options.as_ref().unwrap()[s1_mc_index].to_u16();
         let s2_key = self.s2_options.as_ref().unwrap()[s2_mc_index].to_u16();
@@ -206,7 +218,13 @@ impl Node {
             Some(branch) => {
                 let chosen_child = branch.sample(rng);
                 state.apply_instructions(&(*chosen_child).instructions.instruction_list);
-                (*chosen_child).selection(state, move_options, children, rng)
+                path.push(PathStep {
+                    parent: return_node,
+                    child: chosen_child,
+                    s1_index: s1_mc_index,
+                    s2_index: s2_mc_index,
+                });
+                (*chosen_child).selection(state, move_options, children, path, rng)
             }
             None => (return_node, s1_mc_index, s2_mc_index),
         }
@@ -236,7 +254,7 @@ impl Node {
         children: &mut HashMap<(usize, u16, u16), ChanceBranch>,
         rng: &mut R,
     ) -> *mut Node {
-        if self.depth >= 4 {
+        if self.depth >= MCTS_MAX_DEPTH {
             return self as *mut Node;
         }
         let node_addr = self as *mut Node as usize;
@@ -281,36 +299,22 @@ impl Node {
         new_node_ptr
     }
 
-    pub unsafe fn backpropagate(&mut self, score: f32, state: &mut State) {
+    unsafe fn backpropagate(&mut self, score: f32, state: &mut State, path: &[PathStep]) {
         self.times_visited += 1;
-        if self.root {
-            return;
+        for step in path.iter().rev() {
+            let parent = &mut *step.parent;
+            parent.times_visited += 1;
+
+            let s1 = &mut parent.s1_options.as_mut().unwrap()[step.s1_index];
+            s1.total_score += score;
+            s1.visits += 1;
+
+            let s2 = &mut parent.s2_options.as_mut().unwrap()[step.s2_index];
+            s2.total_score += 1.0 - score;
+            s2.visits += 1;
+
+            state.reverse_instructions(&(*step.child).instructions.instruction_list);
         }
-        let s1_choice_index = if (*self.parent).times_visited >= MIN_VISITS_BEFORE_SELECTION as u32
-        {
-            0
-        } else {
-            (*self.parent).times_visited as usize
-                % (*self.parent).s1_options.as_ref().unwrap().len()
-        };
-        let s2_choice_index = if (*self.parent).times_visited >= MIN_VISITS_BEFORE_SELECTION as u32
-        {
-            0
-        } else {
-            (*self.parent).times_visited as usize
-                % (*self.parent).s2_options.as_ref().unwrap().len()
-        };
-
-        let parent_s1_movenode = &mut (*self.parent).s1_options.as_mut().unwrap()[s1_choice_index];
-        parent_s1_movenode.total_score += score;
-        parent_s1_movenode.visits += 1;
-
-        let parent_s2_movenode = &mut (*self.parent).s2_options.as_mut().unwrap()[s2_choice_index];
-        parent_s2_movenode.total_score += 1.0 - score;
-        parent_s2_movenode.visits += 1;
-
-        state.reverse_instructions(&self.instructions.instruction_list);
-        (*self.parent).backpropagate(score, state);
     }
 
     pub fn rollout(&mut self, state: &mut State, root_eval: &f32) -> f32 {
@@ -340,11 +344,15 @@ impl MoveNode {
         (self.move_choice.0.to_u8() as u16) << 8 | (self.move_choice.1.to_u8() as u16)
     }
     pub fn ucb1(&self, parent_visits: u32) -> f32 {
+        self.ucb1_with_exploration(2.0 * (parent_visits as f32).ln())
+    }
+
+    fn ucb1_with_exploration(&self, exploration: f32) -> f32 {
         if self.visits == 0 {
             return f32::INFINITY;
         }
-        let score = (self.total_score / self.visits as f32)
-            + (2.0 * (parent_visits as f32).ln() / self.visits as f32).sqrt();
+        let score =
+            (self.total_score / self.visits as f32) + (exploration / self.visits as f32).sqrt();
         score
     }
     pub fn average_score(&self) -> f32 {
@@ -382,13 +390,23 @@ fn do_mcts<R: Rng + ?Sized>(
     root_eval: &f32,
     move_options: &mut MoveOptions,
     children: &mut HashMap<(usize, u16, u16), ChanceBranch>,
+    path: &mut Vec<PathStep>,
     rng: &mut R,
 ) {
-    let (mut new_node, s1_move, s2_move) =
-        unsafe { root_node.selection(state, move_options, children, rng) };
-    new_node = unsafe { (*new_node).expand(state, s1_move, s2_move, children, rng) };
+    path.clear();
+    let (leaf, s1_move, s2_move) =
+        unsafe { root_node.selection(state, move_options, children, path, rng) };
+    let new_node = unsafe { (*leaf).expand(state, s1_move, s2_move, children, rng) };
+    if new_node != leaf {
+        path.push(PathStep {
+            parent: leaf,
+            child: new_node,
+            s1_index: s1_move,
+            s2_index: s2_move,
+        });
+    }
     let rollout_result = unsafe { (*new_node).rollout(state, root_eval) };
-    unsafe { (*new_node).backpropagate(rollout_result, state) }
+    unsafe { (*new_node).backpropagate(rollout_result, state, path) }
 }
 
 pub fn perform_mcts(
@@ -406,6 +424,7 @@ pub fn perform_mcts(
     let mut combined_options = MoveOptions::new();
     let mut children: HashMap<(usize, u16, u16), ChanceBranch> = HashMap::new();
     let root_eval = evaluate(state);
+    let mut path = Vec::with_capacity(16);
     let mut rng = rng();
     let start_time = std::time::Instant::now();
     while start_time.elapsed() < max_time {
@@ -416,6 +435,7 @@ pub fn perform_mcts(
                 &root_eval,
                 &mut combined_options,
                 &mut children,
+                &mut path,
                 &mut rng,
             );
         }
@@ -541,46 +561,7 @@ fn print_tree_stats(root: &Node, children: &HashMap<(usize, u16, u16), ChanceBra
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use rand::rngs::StdRng;
-
-    #[test]
-    fn chance_sampling_preserves_relative_weights_and_skips_zeroes() {
-        let nodes: Box<[Node]> = [0.0, 2.0, 0.0, 6.0, 0.0]
-            .iter()
-            .map(|&weight| {
-                let mut node = Node::new(1);
-                node.instructions.percentage = weight;
-                node
-            })
-            .collect();
-        let mut branch = ChanceBranch::new(nodes);
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut light = 0;
-        for _ in 0..20_000 {
-            let weight = unsafe { (*branch.sample(&mut rng)).instructions.percentage };
-            assert!(weight == 2.0 || weight == 6.0);
-            if weight == 2.0 {
-                light += 1;
-            }
-        }
-        assert!(
-            (4_600..5_400).contains(&light),
-            "light branch sampled {} times",
-            light
-        );
-    }
-
-    #[test]
-    fn singleton_chance_branch_returns_its_only_node() {
-        let mut nodes = vec![Node::new(1)].into_boxed_slice();
-        let expected = &mut nodes[0] as *mut Node;
-        let mut branch = ChanceBranch::new(nodes);
-        let mut rng = StdRng::seed_from_u64(42);
-        assert_eq!(branch.sample(&mut rng), expected);
-    }
-}
+mod tests;
 
 /// Fixed-work, seeded profiling entry point. Production searches use ThreadRng.
 /// The measured duration covers only iterations, excluding setup and destruction.
@@ -601,6 +582,7 @@ pub fn benchmark_mcts(
     let mut options = MoveOptions::new();
     let mut children = HashMap::new();
     let root_eval = evaluate(state);
+    let mut path = Vec::with_capacity(16);
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let started = std::time::Instant::now();
     for _ in 0..iterations {
@@ -610,6 +592,7 @@ pub fn benchmark_mcts(
             &root_eval,
             &mut options,
             &mut children,
+            &mut path,
             &mut rng,
         );
     }
