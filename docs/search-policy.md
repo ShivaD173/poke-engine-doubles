@@ -26,18 +26,25 @@ the leaf reward.
 ## Exploration
 
 An action here is the joint pair of commands for one side's active Pokémon.
-Each side independently samples uniformly from its currently unvisited actions.
-After each action has one visit, selection uses UCB1 over every available action:
+Each side independently samples uniformly from actions below the initial visit
+minimum: **20 visits per action at the root, four at every non-root node**.
+The root is identified by its role, so a forced-replacement descendant still at
+turn depth zero uses four. Once every action for that side reaches the minimum,
+selection uses UCB1 over every available action:
 
 ```text
 Q(action) + sqrt(2 * ln(parent_visits) / action_visits)
 ```
 
-Equal UCB scores are broken randomly. This replaces the compulsory 50 visits
-per action and the synchronized round-robin schedule. For example, a side with
-40 actions can begin value-based selection after 40 action visits instead of
-2,000. The two sides can enter this stage at different times when their action
-counts differ.
+Equal UCB scores are broken randomly. For a side with 40 actions, value-based
+selection begins after 800 action visits at the root or 160 at a deeper node,
+compared with the original 2,000 under the 50-visit policy. The two sides can
+enter this stage at different times when their action counts differ.
+
+These counts apply to each side's joint action, not each our-action/opponent-action
+pair. Opposing actions are sampled independently; 20 visits do not guarantee 20
+distinct opposing responses. A time budget can expire before every action
+reaches its minimum, especially at rarely revisited deeper nodes.
 
 The implementation scans current UCB values instead of maintaining an
 implicitly reordered action list. No heuristic priors, PUCT, progressive
@@ -65,8 +72,9 @@ Regression tests cover:
 
 - Actual-action credit after visit 50, unequal side action counts, and multiple
   traversed edges, including the opponent's complementary reward.
-- Independent initial exploration, immediate value-based selection after one
-  visit per action, UCB uncertainty bonuses, and randomized ties.
+- Independent initial exploration with 20 root visits and four descendant visits
+  per action, including depth-zero descendants and unequal action counts.
+- Transition to value-based selection, UCB uncertainty bonuses, and randomized ties.
 - Cached-branch reuse, exactly reaching turns five and six, stopping before
   seven, and forced replacements retaining their existing turn depth.
 - Choosing an immediate guaranteed KO over an action that guarantees defeat.

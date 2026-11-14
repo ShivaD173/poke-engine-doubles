@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 const MCTS_MAX_DEPTH: u8 = 6;
+const ROOT_INITIAL_VISITS: u32 = 20;
+const NON_ROOT_INITIAL_VISITS: u32 = 4;
 
 fn sigmoid(x: f32) -> f32 {
     // Tuned so that ~400 points is very close to 1.0
@@ -144,26 +146,34 @@ impl Node {
         choice
     }
 
-    fn select_move_index<R: Rng + ?Sized>(
-        options: &[MoveNode],
-        parent_visits: u32,
-        rng: &mut R,
-    ) -> usize {
-        // Try every legal action once, independently for each side. Uniformly
-        // sampling the remaining unvisited actions avoids synchronized cycling.
-        let unvisited = options.iter().filter(|option| option.visits == 0).count();
-        if unvisited > 0 {
-            let rank = rng.random_range(0..unvisited);
+    fn initial_visits(&self) -> u32 {
+        if self.root {
+            ROOT_INITIAL_VISITS
+        } else {
+            NON_ROOT_INITIAL_VISITS
+        }
+    }
+
+    fn select_move_index<R: Rng + ?Sized>(&self, options: &[MoveNode], rng: &mut R) -> usize {
+        // Sample independently for each side until every action reaches this
+        // node's minimum. Actual action visits, not parent visits, set the phase.
+        let minimum = self.initial_visits();
+        let under_sampled = options
+            .iter()
+            .filter(|option| option.visits < minimum)
+            .count();
+        if under_sampled > 0 {
+            let rank = rng.random_range(0..under_sampled);
             return options
                 .iter()
                 .enumerate()
-                .filter(|(_, option)| option.visits == 0)
+                .filter(|(_, option)| option.visits < minimum)
                 .nth(rank)
                 .unwrap()
                 .0;
         }
 
-        let exploration = 2.0 * (parent_visits.max(1) as f32).ln();
+        let exploration = 2.0 * (self.times_visited.max(1) as f32).ln();
         let mut best_score = f32::NEG_INFINITY;
         let mut best_index = 0;
         let mut ties = 0;
@@ -206,10 +216,8 @@ impl Node {
             );
         }
 
-        let s1_mc_index =
-            Self::select_move_index(self.s1_options.as_ref().unwrap(), self.times_visited, rng);
-        let s2_mc_index =
-            Self::select_move_index(self.s2_options.as_ref().unwrap(), self.times_visited, rng);
+        let s1_mc_index = self.select_move_index(self.s1_options.as_ref().unwrap(), rng);
+        let s2_mc_index = self.select_move_index(self.s2_options.as_ref().unwrap(), rng);
 
         let s1_key = self.s1_options.as_ref().unwrap()[s1_mc_index].to_u16();
         let s2_key = self.s2_options.as_ref().unwrap()[s2_mc_index].to_u16();

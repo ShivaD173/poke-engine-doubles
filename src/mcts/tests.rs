@@ -12,67 +12,124 @@ fn options(count: usize) -> Vec<MoveNode> {
 }
 
 #[test]
-fn explores_each_action_once_then_uses_its_value() {
-    let mut options = options(5);
-    let mut rng = StdRng::seed_from_u64(42);
-    for visits in 0..5 {
-        let index = Node::select_move_index(&options, visits, &mut rng);
-        assert_eq!(options[index].visits, 0);
-        options[index].visits = 1;
-        options[index].total_score = if index == 3 { 1.0 } else { 0.0 };
+fn root_and_descendants_reach_their_minimum_before_ucb() {
+    for (is_root, minimum) in [(true, 20), (false, 4)] {
+        // Descendants can still be at depth zero during preview/replacements.
+        let mut node = Node::new(0);
+        node.root = is_root;
+        assert_eq!(node.initial_visits(), minimum);
+        let mut options = options(5);
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..5 * minimum {
+            let index = node.select_move_index(&options, &mut rng);
+            assert!(options[index].visits < minimum);
+            options[index].visits += 1;
+            options[index].total_score += if index == 3 { 1.0 } else { 0.0 };
+            node.times_visited += 1;
+        }
+        assert!(options.iter().all(|option| option.visits == minimum));
+        // All actions have equal visits now: UCB chooses the best mean.
+        assert_eq!(node.select_move_index(&options, &mut rng), 3);
+        // One low-valued action still needs a visit, even with a large N.
+        options[1].visits -= 1;
+        node.times_visited = 10_000;
+        assert_eq!(node.select_move_index(&options, &mut rng), 1);
     }
-    assert!(options.iter().all(|option| option.visits == 1));
-    // Value-based selection starts after five visits, not 5 * 50 visits.
-    assert_eq!(Node::select_move_index(&options, 5, &mut rng), 3);
 }
 
 #[test]
 fn sides_explore_independently_instead_of_repeating_diagonal_pairs() {
-    let mut s1 = options(12);
-    let mut s2 = options(12);
-    let mut rng = StdRng::seed_from_u64(42);
-    let mut pairs = Vec::new();
-    for visits in 0..12 {
-        let a = Node::select_move_index(&s1, visits, &mut rng);
-        let b = Node::select_move_index(&s2, visits, &mut rng);
-        assert_eq!(s1[a].visits, 0);
-        assert_eq!(s2[b].visits, 0);
-        s1[a].visits += 1;
-        s2[b].visits += 1;
-        pairs.push((a, b));
+    for (is_root, minimum) in [(true, 20), (false, 4)] {
+        let mut node = Node::new(0);
+        node.root = is_root;
+        let mut s1 = options(12);
+        let mut s2 = options(12);
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut pairs = Vec::new();
+        for _ in 0..12 * minimum {
+            let a = node.select_move_index(&s1, &mut rng);
+            let b = node.select_move_index(&s2, &mut rng);
+            assert!(s1[a].visits < minimum);
+            assert!(s2[b].visits < minimum);
+            s1[a].visits += 1;
+            s2[b].visits += 1;
+            node.times_visited += 1;
+            pairs.push((a, b));
+        }
+        assert!(pairs.iter().any(|(a, b)| a != b));
+        assert!(s1
+            .iter()
+            .chain(s2.iter())
+            .all(|option| option.visits == minimum));
     }
-    assert!(pairs.iter().any(|(a, b)| a != b));
-    assert!(s1.iter().chain(s2.iter()).all(|option| option.visits == 1));
+}
+
+#[test]
+fn unequal_action_counts_finish_initial_exploration_independently() {
+    for (is_root, minimum) in [(true, 20), (false, 4)] {
+        let mut node = Node::new(0);
+        node.root = is_root;
+        let mut s1 = options(2);
+        let mut s2 = options(3);
+        let mut rng = StdRng::seed_from_u64(42);
+        for iteration in 0..3 * minimum {
+            let a = node.select_move_index(&s1, &mut rng);
+            let b = node.select_move_index(&s2, &mut rng);
+            if iteration == 2 * minimum {
+                assert!(s1.iter().all(|option| option.visits == minimum));
+                assert!(s2.iter().any(|option| option.visits < minimum));
+                assert_eq!(a, 1); // side one already uses UCB
+            }
+            assert!(s2[b].visits < minimum);
+            s1[a].visits += 1;
+            s1[a].total_score += if a == 1 { 1.0 } else { 0.0 };
+            s2[b].visits += 1;
+            node.times_visited += 1;
+        }
+        assert!(s1.iter().any(|option| option.visits > minimum));
+        assert!(s2.iter().all(|option| option.visits == minimum));
+        assert_eq!(
+            s1.iter().map(|option| option.visits).sum::<u32>(),
+            node.times_visited
+        );
+        assert_eq!(
+            s2.iter().map(|option| option.visits).sum::<u32>(),
+            node.times_visited
+        );
+    }
 }
 
 #[test]
 fn ucb_uses_all_actions_and_breaks_equal_scores_randomly() {
+    let mut node = Node::new(0);
+    node.root = true;
+    node.times_visited = 100;
     let mut options = options(4);
     for option in &mut options {
-        option.visits = 10;
-        option.total_score = 5.0;
+        option.visits = 25;
+        option.total_score = 12.5;
     }
     let mut rng = StdRng::seed_from_u64(42);
     let mut counts = [0; 4];
     for _ in 0..20_000 {
-        counts[Node::select_move_index(&options, 40, &mut rng)] += 1;
+        counts[node.select_move_index(&options, &mut rng)] += 1;
     }
     assert!(counts.iter().all(|&count| (4_600..5_400).contains(&count)));
-    options[2].total_score = 10.0;
-    assert_eq!(Node::select_move_index(&options, 40, &mut rng), 2);
-    // Selection does not shuffle/reorder the action array under path indices.
-    assert_eq!(options[2].total_score, 10.0);
+    options[2].total_score = 25.0;
+    assert_eq!(node.select_move_index(&options, &mut rng), 2);
+    assert_eq!(options[2].total_score, 25.0);
 
-    // UCB still explores an uncertain action even with a lower mean.
-    options[0].visits = 100;
-    options[0].total_score = 95.0;
-    options[1].visits = 2;
-    options[1].total_score = 0.2;
-    options[2].visits = 100;
-    options[2].total_score = 80.0;
-    options[3].visits = 100;
-    options[3].total_score = 80.0;
-    assert_eq!(Node::select_move_index(&options, 302, &mut rng), 1);
+    // All actions meet even the root minimum; UCB still values uncertainty.
+    options[0].visits = 1_000;
+    options[0].total_score = 950.0;
+    options[1].visits = 20;
+    options[1].total_score = 6.0;
+    options[2].visits = 1_000;
+    options[2].total_score = 800.0;
+    options[3].visits = 1_000;
+    options[3].total_score = 800.0;
+    node.times_visited = 3_020;
+    assert_eq!(node.select_move_index(&options, &mut rng), 1);
 }
 
 #[test]
@@ -342,7 +399,7 @@ fn concentrates_on_a_guaranteed_ko_instead_of_a_guaranteed_loss() {
         .unwrap();
     assert!(attack.visits > 450);
     assert_eq!(attack.total_score, attack.visits as f32);
-    assert!(splash.visits > 0);
+    assert!(splash.visits >= ROOT_INITIAL_VISITS);
     assert_eq!(splash.total_score, 0.0);
     assert_eq!(
         result.s1.iter().map(|option| option.visits).sum::<u32>(),
